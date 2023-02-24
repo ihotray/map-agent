@@ -5169,12 +5169,18 @@ int wifi_radio_update_opclass_preferences(struct agent *a, const char *radio, bo
 {
 	struct wifi_radio_opclass opclass = {};
 	struct wifi_radio_element *radio_element;
-	int send_pref_report = 0;
+	int send_pref_report = 0, i;
 	struct cmdu_buff *cmdu;
 
 	radio_element = wifi_radio_to_radio_element(a, radio);
-	if (WARN_ON(!radio_element))
+	if (WARN_ON(!radio_element)) {
+		for (i = 0; i < WIFI_DEVICE_MAX_NUM; i++) {
+			if (a->radios[i].name[0] != '\0') {
+				trace("!!!!radios[%d].name: %s, not match: %s\n", i, a->radios[i].name, radio);
+			}
+		}
 		return -1;
+	}
 
 	/* Don't call lower layer so often */
 	if (!wifi_opclass_expired(&radio_element->opclass, 5))
