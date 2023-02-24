@@ -1,0 +1,14 @@
+.built
+.built_check
+.configured_
+.dep_files
+.git_update
+.prepared_*
+ipkg-*
+**/*.o
+**/*.so
+src/tags
+src/mapagent
+**/dynbhd
+.configured_*
+.pkgdir

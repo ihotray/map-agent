@@ -1,0 +1,27 @@
+#!/bin/sh
+
+
+pid=$(pidof dynbhd)
+[ -n "$pid" ] && exit 0 # dynbhd is managing the links
+
+bridge="$(uci -q get mapagent.agent.al_bridge)"
+
+[ "$bridge" == "" ] && bridge="br-lan" # no al-bridge specified, default br-lan
+
+if [ ! -f /var/run/multiap/map.connected.ports ]; then
+	touch /var/run/multiap/map.connected.ports
+	if [ "$LINK" = "up" ]; then
+		touch /var/run/multiap/map.connected.ports
+		echo "$PORT" > /var/run/multiap/map.connected.ports
+		brctl delif $bridge $PORT
+	fi
+else
+	if [ "$LINK" = "up" ]; then
+		brctl delif $bridge $PORT
+		echo "$PORT" >> /var/run/multiap/map.connected.ports
+	else
+		sed -i -E "/(^|:)"$PORT"(:|$)/d" /var/run/multiap/map.connected.ports
+		brctl addif $bridge $PORT
+		[ "$(cat /var/run/multiap/map.connected.ports | wc -c)" = "0" ] && rm /var/run/multiap/map.connected.ports
+	fi
+fi

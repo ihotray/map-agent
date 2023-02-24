@@ -1,0 +1,534 @@
+{
+    "mapagent": [{
+            "section": "agent",
+            "required": "yes",
+            "description": "Mapagent daemon Configuration",
+            "multi": false,
+            "options": [{
+                    "name": "enabled",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": true,
+                    "description": "Enables mapagent daemon"
+                },
+                {
+                    "name": "debug",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "0",
+                    "description": "Mapagent debug level"
+                },
+                {
+                    "name": "profile",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "2",
+                    "description": "Currently unused"
+                },
+                {
+                    "name": "brcm_setup",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": false,
+                    "description": "For broadcom platforms, mapagent is responsible for adding the wds interface to the bridge"
+                },
+                {
+                    "name": "al_bridge",
+                    "type": "string",
+                    "required": "no",
+                    "default": "br-lan",
+                    "description": "The bridge which the wds interface will be attached to."
+                },
+                {
+                    "name": "ifprefix",
+                    "type": "string",
+                    "required": "no",
+                    "default": "wl if brcm_setup is set, else wlan",
+                    "description": "The interface names that will be created by mapagent are using the specified netdev. Netdev supports a variety of formats, using % as an identifier"
+                },
+                {
+                    "name": "netdev",
+                    "type": "string",
+                    "required": "no",
+                    "default": "wl if brcm_setup is set, else wlan",
+                    "description": "Old/alternate (to be deprecated) option to ifprefix."
+                },
+                {
+                    "name": "controller_mac",
+                    "type": "string",
+                    "required": "no",
+                    "default": "",
+                    "description": "Will be set at runtime by mapagent"
+                },
+                {
+                    "name": "island_prevention",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": false,
+                    "description": "Enable or disables the island prevention feature. Must additionally be compile-time selected"
+                }, {
+                    "name": "resend_num",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "0",
+                    "description": "Number of retry attempts for CMDUs which expect a response if none is received"
+                },
+                {
+                    "name": "dyn_cntlr_sync",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": false,
+                    "description": "Allow map-agent to sync its local controller config (if any) using HLD messages"
+                },
+                {
+                    "name": "eth_onboards_wifi_bhs",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": false,
+                    "description": "Automatically configure backhaul stations based on received bBSS credentials upon AP-Autoconfiguration"
+                },
+                {
+                    "name": "ap_follow_sta_dfs",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": false,
+                    "description": "If backhaul STA connects to a channel/bandwidth which has not cleared DFS, it will disconnect and reconnect over any lower priority backhaul STA (if available). It will perform a fresh CAC and reconnect once complete. Recommended for mac80211 based platforms."
+                },
+                {
+                    "name": "guest_isolation",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": false,
+                    "description": "Isolate guests-to-guest traffic in the case of traffic separation is enabled."
+                },
+                {
+                    "name": "scan_on_boot_only",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": false,
+                    "description": "Perform scan at map-agent start-up. Disallow fresh scan on request."
+                }
+            ]
+        },
+        {
+            "section": "dynamic_backhaul",
+            "required": "no",
+            "description": "Options to manage dynamic backhaul functionality",
+            "multi": false,
+            "options": [{
+                    "name": "missing_bh_timer",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "60",
+                    "description": "Time after lost backhaul connection at which agent will start scanning on all backhaul stations"
+                },
+                {
+                    "name": "missing_bh_reconfig_timer",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "300",
+                    "description": "Time after lost backhaul connection at which agent will allow backhaul stations to find a new bBSS to connect to, clearing previously set BSSID options from configurations"
+                }
+            ]
+        },
+        {
+            "section": "controller_select",
+            "required": "no",
+            "description": "Configure controller selection parameters",
+            "multi": false,
+            "options": [{
+                    "name": "local",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": false,
+                    "description": "Enforce local controller. If set, the device will not be configurable by a non-local controller. If set, it also enables autostart"
+                },
+                {
+                    "name": "id",
+                    "type": "string",
+                    "required": "no",
+                    "default": "auto",
+                    "description": "Lock mapagent to a specific controller AL-ID. NOT YET IMPLEMENTED"
+                },
+                {
+                    "name": "probe_int",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "20",
+                    "description": "The interval at which AP-Autoconfig Search (discovery) will be sent"
+                },
+                {
+                    "name": "retry_int",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "15",
+                    "description": "After these many failed attempts mapagent infers no controller is active and accordingly takes next action"
+                },
+                {
+                    "name": "autostart",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": true,
+                    "description": "When this is set to true, the agent will try to start the controller after not finding one in the network."
+                }
+            ]
+        },
+        {
+            "section": "radio",
+            "required": "yes",
+            "description": "Represents a radio. Also contains radio specific policies",
+            "multi": true,
+            "options": [{
+                    "name": "device",
+                    "type": "string",
+                    "required": "yes",
+                    "default": "",
+                    "description": "Radio name"
+                },
+                {
+                    "name": "band",
+                    "type": "integer",
+                    "required": "yes",
+                    "default": "",
+                    "description": "Band on which the radio operates"
+                },
+                {
+                    "name": "encryption",
+                    "type": "list",
+                    "required": "no",
+                    "default": "sae-mixed, sae, psk2, none, psk-mixed, psk, wpa, wpa2",
+                    "description": "Encryptions supported. Sent with WSC M1 meta data."
+                },
+                {
+                    "name": "onboarded",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": false,
+                    "description": "Set by mapagent if the radio has been onboarded (credentials received)"
+                },
+                {
+                    "name": "dedicated_backhaul",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": false,
+                    "description": "This radio will not be configured with fronthaul interfaces"
+                },
+                {
+                    "name": "steer_policy",
+                    "type": "unteger",
+                    "required": "no",
+                    "default": "0",
+                    "description": "Steer policy to be used. 0 = Agent Initiated Steering Disallowed, 1 = Agent Initiated RCPI-based Steering Mandated, 2 = Agent Initiated RCPI-based Steering Allowed"
+                },
+                {
+                    "name": "util_threshold",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "0",
+                    "description": "Indicate utilization threshold used for agent-initiated steering"
+                },
+                {
+                    "name": "rcpi_threshold",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "86",
+                    "description": "Indicate RCPI threshold used for agent-initiated steering. Defaults to 86 for 5GHz and 70 for 2.4GHz"
+                },
+                {
+                    "name": "report_rcpi_threshold",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "96",
+                    "description": "RCPI threshold at which the agent will start sending unsolicited metric reporting to controller. 0 means do not report. Defaults to 96 for 5GHz and 80 for 2.4GHz"
+                },
+                {
+                    "name": "include_sta_stats",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": false,
+                    "description": "Include STA Traffic Stats TLV in AP Metrics Response"
+                },
+                {
+                    "name": "include_sta_metric",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": false,
+                    "description": "Include Associated STA Link Metrics TLV in AP Metrics Response"
+                },
+                {
+                    "name": "rcpi_hysteresis_margin",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "0",
+                    "description": "STA Metrics Reporting RCPI Hysteresis Margin Override. This field is coded as an unsigned integer in units of decibels (dB)."
+                },
+                {
+                    "name": "report_util_threshold",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "0",
+                    "description": "Utilization threshold at which the agent will start sending unsolicited metric reporting to controller. 0 means do not report"
+                },
+                {
+                    "name": "include_wifi6_sta_status",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": false,
+                    "description": "include Associated Wi-Fi 6 STA Status Report TLV in the AP metrics response."
+                }
+            ]
+        },
+        {
+            "section": "bsta",
+            "description": "Represents a backhaul station interface",
+            "required": "no",
+            "multi": true,
+            "options": [{
+                    "name": "ifname",
+                    "type": "boolean",
+                    "required": "yes",
+                    "default": "",
+                    "description": "Interface name of backhaul station interface"
+                },
+                {
+                    "name": "band",
+                    "type": "integer",
+                    "required": "yes",
+                    "default": "",
+                    "description": "Frequency of the interface"
+                },
+                {
+                    "name": "device",
+                    "type": "string",
+                    "required": "yes",
+                    "default": "",
+                    "description": "Radio on which the interface is operating"
+                },
+                {
+                    "name": "onboarded",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": false,
+                    "description": "Whether WPS credentials have successfully been received over the interface"
+                },
+                {
+                    "name": "priority",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "2",
+                    "description": "Priority of the backhaul with respect to other backhaul STAs. The lower the better."
+                },
+                {
+                    "name": "ssid",
+                    "type": "string",
+                    "required": "no",
+                    "default": null,
+                    "description": "SSID provided with the WPS M8 credentials, will be used for the backhaul connection"
+                },
+                {
+                    "name": "encryption",
+                    "type": "string",
+                    "required": "no",
+                    "default": null,
+                    "description": "Encryption provided with the WPS m8 credentials, will be used for the backhaul connection"
+                },
+                {
+                    "name": "key",
+                    "type": "string",
+                    "required": "no",
+                    "default": null,
+                    "description": "Key provided with the WPS M8 credentials, will be used for the backhaul connection"
+                },
+                {
+                    "name": "bssid",
+                    "type": "string",
+                    "required": "no",
+                    "default": null,
+                    "description": "BSSID to which the connection occured"
+                },
+                {
+                    "name": "enabled",
+                    "type": "string",
+                    "required": "no",
+                    "default": null,
+                    "description": "An option used by map-agent to maintain which backhaul STAs should be enabled upon dynamic backhaul link upgrade"
+                }
+            ]
+        },
+        {
+            "section": "ap",
+            "required": "no",
+            "description": "An AP interface (front or backhaul)",
+            "multi": true,
+            "options": [{
+                    "name": "ifname",
+                    "type": "string",
+                    "required": "yes",
+                    "default": "",
+                    "description": "Interface name"
+                },
+                {
+                    "name": "band",
+                    "type": "string",
+                    "required": "yes",
+                    "default": "",
+                    "description": "Frequency on which the interface operates"
+                },
+                {
+                    "name": "device",
+                    "type": "string",
+                    "required": "yes",
+                    "default": "",
+                    "description": "Radio of which the interface belongs"
+                },
+                {
+                    "name": "ssid",
+                    "type": "string",
+                    "required": "no",
+                    "default": "",
+                    "description": "SSID of the interface"
+                },
+                {
+                    "name": "key",
+                    "type": "string",
+                    "required": "no",
+                    "default": "",
+                    "description": "Password to the SSID"
+                },
+                {
+                    "name": "encryption",
+                    "type": "string",
+                    "required": "no",
+                    "default": "",
+                    "description": "Encryption for the SSID"
+                },
+                {
+                    "name": "vid",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "1",
+                    "description": "VLAN ID tag handled by this interface"
+                },
+                {
+                    "name": "type",
+                    "type": "string",
+                    "required": "no",
+                    "default": "",
+                    "description": "Human readable interface type. Backhaul (multi_ap=1), fronthaul (multi_ap=2) or combined (multi_ap=3)"
+                },
+                {
+                    "name": "enabled",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": true,
+                    "description": "Whether the AP should be enabled. If vendor extensions are compiled in enabled=0 maps to disabled=1 in wireless config."
+                },
+                {
+                    "name": "disallow_bsta",
+                    "type": "boolean",
+                    "required": "no",
+                    "default": true,
+                    "description": "Disallow backhaul station connections of a certain profile. Used as a bitmap, 1 = profile 1 disallow, 2 = profile 2 disallowed, 3 = both"
+                }
+            ]
+        },
+        {
+            "section": "policy",
+            "required": "no",
+            "description": "Policy configuration values as provided by mapcontroller",
+            "multi": false,
+            "options": [{
+                    "name": "report_interval",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "0",
+                    "description": "STA RCPI reporting interval in case of RCPI threshold is met. Provided by mapcontroller"
+                },
+                {
+                    "name": "pvid",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "0",
+                    "description": "Primary VLAN ID"
+                },
+                {
+                    "name": "pcp_default",
+                    "type": "integer",
+                    "required": "no",
+                    "default": "0",
+                    "description": "PCP for primary VLAN ID"
+                },
+                {
+                    "name": "report_scan",
+                    "type": "string",
+                    "required": "no",
+                    "default": "",
+                    "description": "Reporting of independent channel scans."
+                },
+                {
+                    "name": "report_sta_assocfails",
+                    "type": "string",
+                    "required": "no",
+                    "default": "",
+                    "description": "Whether the agent should report association fails to the mapcontroller. NOT YET IMPLEMENTED"
+                },
+                {
+                    "name": "report_sta_assocfails_rate",
+                    "type": "string",
+                    "required": "no",
+                    "default": "",
+                    "description": "Maximum reported failed association attempts per minute. NOT YET IMPLEMENTED"
+                },
+                {
+                    "name": "steer_exclude",
+                    "type": "list",
+                    "required": "no",
+                    "default": "",
+                    "description": "Do not try to steer STA of specified mac address by any means."
+                },
+                {
+                    "name": "steer_exclude_btm",
+                    "type": "list",
+                    "required": "no",
+                    "default": "",
+                    "description": "Do not try to steer STA of specified macaddress by BTM request."
+                }
+            ]
+        },
+        {
+            "section": "opclass",
+            "required": "no",
+            "description": "Channel preference for a certain operation class",
+            "multi": true,
+            "options": [{
+                    "name": "opclassid",
+                    "type": "integer",
+                    "required": "yes",
+                    "default": "0",
+                    "description": "The operating class to which the preference applies"
+                },
+                {
+                    "name": "preference",
+                    "type": "integer",
+                    "required": "yes",
+                    "default": "15",
+                    "description": "The preference of the provided channels, 15 is best, 0 is lowest"
+                },
+                {
+                    "name": "radio",
+                    "type": "string",
+                    "required": "yes",
+                    "default": "",
+                    "description": "The radio on which the channels are managed"
+                },
+                {
+                    "name": "channel",
+                    "type": "list",
+                    "required": "yes",
+                    "default": "",
+                    "description": "Channels to which the preference applies"
+                }
+            ]
+        }
+    ]
+}

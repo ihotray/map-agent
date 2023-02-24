@@ -1,0 +1,249 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+AL_BRIDGE=${AL_BRIDGE-"br-lan"}
+PRIMARY_VID=${PRIMARY_VID-1}
+
+### Traffic Separation ###
+
+dbg() {
+	logger -t traffic_separation $@
+}
+
+ts_sub() {
+	ts_usage() {
+		cat <<EOF
+Usage: $0 [create|reload]
+Traffic Separation related functions.
+create vid - create vlan configuration with vlan_id
+reload     - reload network with new configuration
+EOF
+	exit 1
+	}
+
+	ts_create() {
+		_net_setup() {
+			net_check_for_vlan() {
+				local section=$1
+				local vid=$2
+
+				config_get vlan "$section" vlan
+
+				[ "$vid" = "$vlan" ] && {
+					echo "1"
+					break
+				}
+			}
+
+			local vid=$1
+			local name="vlan${vid}"
+			local br_dev="${AL_BRIDGE/-/_}"
+			local tag=":t"
+			local self_flags="untagged"
+
+			config_load network
+
+			exists=$(config_foreach net_check_for_vlan bridge-vlan $vid)
+
+			[ -z "$exists" ] || return
+
+			uci -q set network.${name}="bridge-vlan"
+			uci -q set network.${name}.name="${name}"
+			uci -q set network.${name}.device="$AL_BRIDGE"
+			uci -q set network.${name}.vlan="$vid"
+
+			[ "${vid}" = "${PRIMARY_VID}" ] && {
+				self_flags="untagged pvid"
+				tag=":*"
+			}
+
+			uci -q set network.${name}.flags="${self_flags}"
+			uci -q set network.${name}.local='1'
+
+			for port in $(uci -q get network.${br_dev}.ports) ; do
+				uci -q get network.${name}.ports | grep -q "${port}${tag}" && continue
+				uci -q add_list network.${name}.ports="${port}${tag}"
+			done
+
+			uci -q commit network
+		}
+
+		vid=$1
+
+		[ -n "$vid" ] || {
+			cat <<EOF
+VID required to configure.
+EOF
+			exit 1
+		}
+
+                logger -t vlan "setup ts vid $vid"
+                _net_setup ${vid}
+
+                # Disable pktfwd here and flush FlowCache rules
+                echo 0 > /proc/pktfwd_dhd/enable
+                echo 0 > /proc/pktfwd_wl/enable
+                fcctl flush
+	}
+
+	ts_reload() {
+		# TODO check it again
+		local dhcp_reload=$1
+		restart=""
+
+		bridge_verify_vid_mapping() {
+			local section=$1
+
+			check_port_vid() {
+				local port="$1"
+				local vlan="$2"
+
+				added=$(bridge vlan show dev $port | grep -w "$vlan")
+				if [ "$added" = "" ]; then
+					restart="1"
+					break
+				fi
+			}
+
+			config_get vlan "$section" vlan "0"
+
+			[ "$vlan" = "0" ] && continue
+
+			config_list_foreach "$section" "ports" check_port_vid "$vlan"
+			[ "$restart" = "1" ] && break
+		}
+
+
+
+		config_load network
+		config_foreach bridge_verify_vid_mapping bridge-vlan
+
+
+		[ -n "dhcp_reload" ] && /etc/init.d/dnsmasq reload
+		if [ "$restart" = "1" ]; then
+			dbg "trigger network restart"
+			/etc/init.d/network restart
+		else
+			ubus call uci commit '{"config":"network"}'
+		fi
+		/etc/init.d/firewall reload
+
+
+		#for sink in $(ubus list network.interface.sink*) ; do
+		#	local sink_vlan=${sink/network.interface./}_vlan
+		#done
+	}
+
+	# maintain VIDs passed as args in network config, remove rest
+	ts_keep() {
+		local al_bridge=$(uci -q get mapagent.agent.al_bridge)
+		restart=""
+
+		[ "$al_bridge" = "" ] && al_bridge="br-lan"
+
+		bridge_vlan_teardown() {
+			local section=$1
+			shift
+			local bridge=$1
+			shift
+			local keep="$@"
+
+			config_get device "$section" device
+
+			[ "$bridge" != "$device" ] && continue
+
+			config_get vlan "$section" vlan
+
+			for i in $@; do
+				if [ "$i" -eq "$vlan" ] ; then
+					return
+				fi
+			done
+
+			uci -q delete network.$section
+			restart="1"
+		}
+
+		config_load network
+		config_foreach bridge_vlan_teardown bridge-vlan $al_bridge $@
+
+		if [ "$restart" = "1" ]; then
+			uci commit network
+			dbg "trigger network restart"
+			/etc/init.d/network restart
+		fi
+	}
+
+	ts_cleanup() {
+		local al_bridge=$(uci -q get mapagent.agent.al_bridge)
+		restart=""
+
+		[ "$al_bridge" = "" ] && al_bridge="br-lan"
+
+		bridge_device_teardown() {
+			local section=$1
+			local bridge=$2
+			config_get device "$section" device
+
+			[ "$bridge" != "$device" ] && continue
+
+			uci -q delete network.$section
+			restart="1"
+		}
+
+		config_load network
+		config_foreach bridge_device_teardown bridge-vlan $al_bridge
+
+		if [ "$restart" = "1" ]; then
+			uci commit network
+			dbg "trigger network restart"
+			/etc/init.d/network restart
+		fi
+
+		# enable pktfwd again and flush FlowCache rules
+		echo 1 > /proc/pktfwd_dhd/enable
+		echo 1 > /proc/pktfwd_wl/enable
+		echo 0 > /proc/pktfwd_dhd/enable
+		echo 0 > /proc/pktfwd_wl/enable
+		echo 1 > /proc/pktfwd_dhd/enable
+		echo 1 > /proc/pktfwd_wl/enable
+		fcctl flush
+	}
+
+	ts_isolate() {
+		local action=$1
+		shift
+		local pvid=$1 # pvid
+		shift
+		local ifname=$1 # guest fbss name
+		shift
+		local ifprefix=$@ # 4addr mode ifname prefix
+
+		[ -z "$pvid" -o -z "$ifprefix" -o -z "$ifname" ] && return
+
+		for prefix in $@; do
+			ebtables -D FORWARD -i $ifname --o ${prefix}+ --vlan-id ! $pvid -j DROP -p 802_1Q > /dev/null 2>&1
+			ebtables -D FORWARD -i ${prefix}+ --o ${ifname} --vlan-id ! $pvid -j DROP -p 802_1Q > /dev/null 2>&1
+
+			[ "$action" != "add" ] && continue
+			ebtables -A FORWARD -i $ifname --o ${prefix}+ --vlan-id ! $pvid -j DROP -p 802_1Q > /dev/null 2>&1
+			ebtables -A FORWARD -i ${prefix}+ --o ${ifname} --vlan-id ! $pvid -j DROP -p 802_1Q > /dev/null 2>&1
+		done
+
+
+	}
+
+	local func=$1
+	shift
+
+	case "$func" in
+		create) dbg "create $@"; ts_create $@;;
+		keep) dbg "keep $@"; ts_keep $@;;
+		reload) dbg "reload $@"; ts_reload $@;;
+		cleanup) dbg "cleanup $@"; ts_cleanup $@;;
+		isolate) dbg "isolate $@"; ts_isolate $@;;
+		--help|help) ts_usage;;
+		*) ts_usage; exit 1;;
+	esac
+}

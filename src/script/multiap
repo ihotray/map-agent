@@ -1,0 +1,943 @@
+#!/bin/sh
+
+# functions
+# wireless_teardown - tear down ifaces based on mapagent config
+# setup_network     - prepare /etc/config/network if necessary
+# setup_wireless    - prepare /etc/config/wireless based on mapagent config
+# write_credentials - write bBSS credentials to fBSS
+
+. /lib/functions.sh
+. /usr/share/libubox/jshn.sh
+. /lib/wifi/traffic_separation
+
+MAPFILE="/var/run/multiap/multiap.backhaul"
+
+diff=0
+onbrd_bssid=0
+onbrd_band=0
+
+usage() {
+	cat <<EOF
+Usage: $0 [wireless_teardown|setup_network|setup_wireless|write_credentials]
+Platform specific Multi-AP script to prepare network and wifi subsystem based on
+mapagent configuration.
+wireless_teardown - tear down ifaces in /etc/config/wireless
+setup_network     - prepare /etc/config/network
+setup_wireless    - prepare /etc/config/wireless
+write_credentials - write bBSS credentials to fBSS
+EOF
+	exit 1
+}
+
+
+type_to_multi_ap () {
+	type="$1"
+
+	if [ "$type" = "backhaul" ]; then
+		echo "1"
+		return
+	elif [ "$type" = "fronthaul" ]; then
+		echo "2"
+		return
+	elif [ "$type" = "combined" ]; then
+		echo "3"
+		return
+	fi
+
+	echo "0"
+}
+
+get_type_by_section() {
+	section="$1"
+
+	config_get type $section type "0"
+
+	echo "$(type_to_multi_ap $type)"
+}
+
+sync_credentials() {
+	bands=""
+	json_init
+	mapagent_process_fh() {
+		local section=$1
+		local dev=$2
+
+		multi_ap=$(get_type_by_section $section)
+		[ "$multi_ap" == "0" ] && return
+
+		config_get device $section device
+
+		[ "$dev" != "$device" ] && return
+
+		config_get band $section band
+		config_get ssid $section ssid
+		config_get encryption $section encryption
+		config_get key $section key
+
+		section=$(uci add ieee1905 ap)
+		[ "$section" == "" ] && return
+
+		uci -q set ieee1905.${section}.band=$band
+		uci -q set ieee1905.${section}.ssid="$ssid"
+		uci -q set ieee1905.${section}.encryption=$encryption
+		uci -q set ieee1905.${section}.key="$key"
+		json_select "$band" > /dev/null
+		if [ "$?" = "0" ]; then
+			json_get_keys keys
+
+			for key in ${keys};
+			do
+				json_get_var val "$key"
+				uci -q set ieee1905.${section}.$key="$val"
+			done
+			json_select ..
+		fi
+	}
+
+	mapagent_process_radio() {
+		local section=$1
+
+		config_get device $section device
+		config_get band $section band
+		config_get dedicated_backhaul $section dedicated_backhaul 0
+
+		[ "$dedicated_backhaul" != "0" ] && return
+
+		for b in $bands; do
+			if [ "$b" == "$band" ]; then
+				return
+			fi
+		done
+
+		config_foreach mapagent_process_fh ap $device
+		bands="$bands $band"
+	}
+
+	ieee1905_del_ap() {
+		append_value() {
+			local section=$1
+			local key=$2
+			shift
+			shift
+
+			while [ "$key" != "" ]; do
+				val=$(uci -q get ieee1905.$section.$key)
+				[ "$val" = "" ] && {
+					key=$1
+					shift
+					continue
+				}
+				json_add_string "$key" ${val}
+				key=$1
+				shift
+			done
+		}
+
+		local section=$1
+		local band
+
+		config_get band $section band
+		json_select "$band" > /dev/null
+		rc=$?
+		[ "$rc" != "0" ] && json_add_object "$band"
+		append_value $section "manufacturer" "model_name" "device_name" "model_number" "serial_number" "device_type" "os_version"
+		if [ "$rc" != "0" ]; then
+			json_close_object
+		else
+			json_select ..
+		fi
+
+		uci -q delete ieee1905.${section}
+	}
+
+	config_load ieee1905
+	config_foreach ieee1905_del_ap ap
+
+	config_load mapagent
+	config_foreach mapagent_process_radio radio
+
+	uci commit ieee1905
+	json_cleanup
+}
+
+write_credentials() {
+	config_load mapagent
+
+	mapagent_apply_wireless() {
+		write_wireless() {
+			local section=$1
+			local map_ifname=$2
+			local bk_ssid="$3"
+			local bk_key="$4"
+
+			config_get ifname $section ifname
+
+			#echo found device=$device map=$multi_ap ifname=$ifname mapifname=$map_ifname
+
+			[ "$ifname" != "$map_ifname" ] && return
+
+			#echo applying bk_ssid = "$bk_ssid" bk_key = "$bk_key"
+
+			uci -q set wireless.${section}.multi_ap_backhaul_ssid="$bk_ssid"
+			uci -q set wireless.${section}.multi_ap_backhaul_key="$bk_key"
+		}
+		config_load wireless
+
+		config_foreach write_wireless wifi-iface "$1" "$2" "$3"
+	}
+
+	mapagent_find_fbss() {
+		local section=$1
+		local dev=$2
+		local bk_ssid="$3"
+		local bk_key="$4"
+
+		multi_ap=$(get_type_by_section $section)
+		[ "$multi_ap" == "0" ] && return
+
+		config_get device $section device
+
+		#echo found dev=$dev device=$device map=$multi_ap
+
+		[ "$device" != "$dev" ] && return
+		[ "$multi_ap" != "2" ] && return
+
+		config_get ifname $section ifname
+
+		#echo applying bk_ssid = "$bk_ssid" bk_key = "$bk_key"
+
+		# subshell in hopes to maintain mapagent config loaded
+		(mapagent_apply_wireless $ifname "$bk_ssid" "$bk_key")
+	}
+
+	mapagent_find_bbss() {
+		local section=$1
+		local dev=$2
+
+		multi_ap=$(get_type_by_section $section)
+		[ "$multi_ap" == "0" ] && return
+
+		config_get device $section device
+		config_get enabled $section enabled "1"
+
+		#echo found dev=$dev device=$device map=$multi_ap
+
+		[ "$enabled" == "0" ] && return
+		[ "$device" != "$dev" ] && return
+		[ "$multi_ap" != "1" ] && return
+
+		config_get ssid $1 ssid
+		config_get key $1 key
+
+		#echo found ssid="$ssid" key="$key"
+
+		config_foreach mapagent_find_fbss ap $dev "$ssid" "$key"
+	}
+
+	mapagent_process_radio() {
+		local section=$1
+
+		config_get device $section device
+
+		#echo found dev=$dev
+
+		config_foreach mapagent_find_bbss ap $device
+	}
+
+
+	config_foreach mapagent_process_radio radio
+
+	uci commit wireless
+}
+
+set_network() {
+	local ifname=$1
+	local num=$2
+	local bssid=$3
+
+	wpa_cli -i $ifname set_n $num bssid $bssid
+}
+
+bsta_steer() {
+	local ifname=$1
+	local bssid=$2
+
+	rc=$(wpa_cli -i $ifname set_n 0 bssid $bssid)
+	[ "$rc" == "FAIL" ] && {
+		echo "1"
+		return;
+	}
+
+	rc=$(wpa_cli -i $ifname roam $bssid)
+	[ "$rc" == "FAIL" ] && {
+		echo "1"
+		return;
+	}
+}
+
+write_bsta_config() {
+	local ifname=$1
+
+	#echo diff = $diff > /dev/console
+
+
+	config_load mapagent
+
+	mapagent_apply_wl_bsta() {
+		apply_config() {
+			local section=$1
+			local bsta=$2
+			local bssid=$3
+
+			config_get ifname $section ifname
+
+			[ "$bsta" == "$ifname" ] || return
+			#echo setting diff = $diff > /dev/console
+			old_bssid="$(uci -q get wireless.${section}.bssid)"
+
+			[ "$old_bssid" == "$bssid" ] && break
+
+			uci -q set wireless.${section}.bssid=$bssid
+			wpa_cli -i "$bsta" set_n 0 bssid $bssid
+			wpa_cli -i "$bsta" save_config
+			echo 1
+		}
+		config_load wireless
+
+		config_foreach apply_config wifi-iface $1 $2
+		uci commit wireless
+	}
+
+	mapagent_process_bk() {
+		local section=$1
+		local bsta=$2
+
+
+		config_get ifname $section ifname
+		#echo bsta = $bsta > /dev/console
+
+		[ "$bsta" == "$ifname" ] || return
+		#echo found ifname=$ifname > /dev/console
+
+		config_get bssid $section bssid
+		config_get band $section band
+		ret=$(mapagent_apply_wl_bsta $ifname $bssid)
+		[ "$ret" == "1" ] && {
+			diff=1
+			onbrd_bssid=$bssid
+			onbrd_band=$band
+		}
+	}
+
+	mapagent_apply_bssid_same_band() {
+		apply_config() {
+			local section=$1
+			local bsta=$2
+
+			config_get ifname $section ifname
+
+			[ "$bsta" == "$ifname" ] || return
+			uci -q set wireless.${section}.bssid=$bssid
+		}
+
+		config_get band $1 band
+		config_get onboarded $1 onboarded "0"
+
+		[ "$onbrd_band" != "$band" -o "$onboarded" = "1" ] && return
+
+		config_get ifname $1 ifname
+
+		config_load wireless
+		config_foreach apply_config wifi-iface $ifname $onbrd_bssid
+		uci commit wireless
+	}
+
+	config_foreach mapagent_process_bk bsta $ifname
+
+	#echo result diff = $diff > /dev/console
+	[ "$diff" == "1" ] && {
+		(config_foreach mapagent_apply_bssid_same_band bsta)
+		#ubus call uci commit '{"config":"wireless"}'
+		#echo reloading wireless > /dev/console
+	}
+
+}
+
+teardown_iface() {
+	config_load mapagent
+
+	local iface=$1
+
+	mapagent_teardown_wireless() {
+		write_wireless() {
+			local section=$1
+			local map_ifname=$2
+
+			config_get ifname $section ifname
+
+			[ "$ifname" != "$map_ifname" ] && return
+
+			uci -q set wireless.${section}.disabled="1"
+			#uci -q set wireless.${section}.ssid="DISABLED-SSID"
+			#uci -q delete wireless.${section}.key
+			uci -q delete wireless.${section}.multi_ap_backhaul_ssid
+			uci -q delete wireless.${section}.multi_ap_backhaul_key
+		}
+
+		config_load wireless
+
+		config_foreach write_wireless wifi-iface $1
+	}
+
+	mapagent_teardown_bss() {
+		local section=$1
+		local iface=$2
+
+		multi_ap=$(get_type_by_section $section)
+		[ "$multi_ap" == "0" ] && return
+
+		config_get ifname $section ifname
+
+		[ "$iface" != "$ifname" ] && return
+
+		config_get ifname $section ifname
+		uci -q set mapagent.${section}.enabled="0"
+		#uci -q set mapagent.${section}.ssid="DISABLED-SSID"
+		#uci -q del mapagent.${section}.key
+		uci -q del mapagent.${section}.vid
+
+		# subshell in hopes to maintain mapagent config loaded
+		(mapagent_teardown_wireless $ifname)
+	}
+
+
+	config_foreach mapagent_teardown_bss ap $iface
+
+	uci commit wireless
+	uci commit mapagent
+}
+
+bsta_to_wireless() {
+	config_load mapagent
+
+	mapagent_find_lowest_prio_onboarded() {
+		mapagent_process_bk() {
+			config_get priority $1 priority "2"
+			config_get onboarded $1 onboarded "0"
+
+			[ "$onboarded" = "0" ] && return
+
+			if [ -z "$sec" -o "$prio" = "-1" -o "$priority" -lt "$prio" ]; then
+				sec=$1
+				prio=$priority
+			fi
+		}
+
+		local sec=""
+		local prio="-1"
+
+		config_foreach mapagent_process_bk bsta
+		echo $sec
+	}
+
+	mapagent_enable_best() {
+		#echo 1=$1 best=$best > /dev/console
+		if [ "$1" = "$best" ]; then
+			uci -q set mapagent.$1.enabled='1'
+		else
+			uci -q set mapagent.$1.enabled='0'
+		fi
+	}
+
+	mapagent_bsta_to_wireless() {
+		mapagent_apply_wl_bsta() {
+			apply_config() {
+				local section=$1
+				local bsta=$2
+				local ssid="$3"
+				local key="$4"
+				local encryption=$5
+				local enabled=$6
+				local bssid=$7
+				local disabled="0"
+
+				config_get ifname $section ifname
+
+				[ -z "$enabled" -o "$enabled" = "0" ] && disabled="1"
+
+				[ "$bsta" == "$ifname" ] || return
+
+				uci -q set wireless.${section}.ssid="$ssid"
+				uci -q set wireless.${section}.key="$key"
+				uci -q set wireless.${section}.encryption=$encryption
+				uci -q set wireless.${section}.bssid="$bssid"
+				uci -q set wireless.${section}.default_disabled='0'
+
+				[ "$disabled" != "1" ] && return
+				wpa_cli -i "$bsta" disconnect > /dev/null 2>&1
+				wpa_cli -i "$bsta" disable_network 0 > /dev/null 2>&1
+				wpa_cli -i "$bsta" save_config > /dev/null 2>&1
+
+				echo 1
+			}
+
+			config_load wireless
+
+			config_foreach apply_config wifi-iface $@
+			uci commit wireless
+		}
+
+		mapagent_find_other_creds() {
+			#echo "trying to find other creds for $2" > /dev/console
+			local other_section="$2"
+
+			config_get band $1 band
+			config_get onboarded $1 onboarded "0"
+
+			[ "$4" != "$band" -o "$onboarded" = "0" ] && return
+
+			config_get ssid $1 ssid
+			config_get key $1 key
+			config_get encryption $1 encryption
+			config_get enabled $1 enabled "0"
+			config_get bssid $1 bssid
+
+			uci -q set mapagent.${other_section}.ssid="$ssid"
+			uci -q set mapagent.${other_section}.key="$key"
+			uci -q set mapagent.${other_section}.encryption=$encryption
+			uci -q set mapagent.${other_section}.bssid="$bssid"
+			uci commit mapagent
+			(mapagent_apply_wl_bsta "$3" "$ssid" "$key" $encryption "$5" "$bssid")
+		}
+
+		config_get band $1 band
+		config_get ifname $1 ifname
+		config_get onboarded $1 onboarded "0"
+		config_get enabled $1 enabled "0"
+
+		if [ "$onboarded" = "0" ]; then
+			config_foreach mapagent_find_other_creds bsta $1 $ifname $band $enabled
+		else
+			config_get ssid $1 ssid
+			config_get key $1 key
+			config_get encryption $1 encryption
+			config_get bssid $1 bssid
+
+			(mapagent_apply_wl_bsta $ifname "$ssid" "$key" $encryption $enabled "$bssid")
+		fi
+	}
+
+#	best=$(mapagent_find_lowest_prio_onboarded)
+#
+#	[ -z "$best" ] && return
+#
+#	band=$1
+#	sec=""
+#	prio=""
+#
+#	config_foreach mapagent_enable_best bsta $best
+#	uci commit mapagent
+	config_load mapagent
+
+	diff=$(config_foreach mapagent_bsta_to_wireless bsta)
+
+#	[ "$diff" != "" ] && {
+
+		ubus call uci commit '{"config":"wireless"}'
+#	}
+}
+
+
+sync_mapcontroller_from_wireless() {
+	ubus -t 5 wait_for wifi
+	[ "$?" != "0" ] && return
+
+	[ ! -f "/etc/config/wireless" ] && return
+
+	status=$(ubus -S call wifi status)
+
+	device_to_band() {
+		local ifname=$1
+		json_load "$status"
+		json_select "radios"
+		json_get_keys keys
+
+		for key in $keys; do
+			json_select $key
+			json_get_var name name
+
+			if [ "$name" != "$ifname" ]; then
+				json_select ..
+				continue
+			fi
+
+			json_get_var band band
+
+			if [ "$band" == "5GHz" ]; then
+				echo "5"
+			elif [ "$band" == "2.4GHz" ]; then
+				echo "2"
+			fi
+
+			break
+		done
+
+		json_cleanup
+	}
+
+	wireless_process_iface() {
+		local section=$1
+		local type="ap"
+		local enabled="1"
+
+		config_get multi_ap $section multi_ap 0
+		[ "$multi_ap" != "1" ] && [ "$multi_ap" != "2" ] && return
+
+		config_get mode $section mode "ap"
+		[ "$mode" != "ap" ] && return
+
+		config_get device $section device
+		band=$(device_to_band $device)
+		[ "$band" == "" ] && return
+
+		config_get ssid $section ssid
+		config_get key $section key
+		config_get encryption $section encryption
+		config_get start_disabled $section start_disabled "0"
+		config_get network $section network
+
+
+		cntlr_section=$(uci add mapcontroller ${type})
+		uci -q set mapcontroller.${cntlr_section}.ssid="$ssid"
+		uci -q set mapcontroller.${cntlr_section}.key="$key"
+		uci -q set mapcontroller.${cntlr_section}.encryption="$encryption"
+		uci -q set mapcontroller.${cntlr_section}.band="$band"
+		uci -q set mapcontroller.${cntlr_section}.vid="1"
+		uci -q set mapcontroller.${cntlr_section}.network="$network"
+
+		[ "$multi_ap" == "1" ] && map_type="backhaul" || map_type="fronthaul"
+		uci -q set mapcontroller.${cntlr_section}.type="$map_type"
+
+		[ "$start_disabled" == "1" ] && enabled="0"
+		uci -q set mapcontroller.${cntlr_section}.enabled="$enabled"
+	}
+
+	mapcontroller_teardown() {
+		local section=$1
+
+		uci delete mapcontroller.$1
+	}
+
+	config_load mapcontroller
+	config_foreach mapcontroller_teardown ap
+
+	config_load wireless
+	config_foreach wireless_process_iface wifi-iface
+	uci commit mapcontroller
+}
+
+bsta_scan_on_enabled() {
+	local onboarded_bands=""
+
+	mapagent_onboarded_bands() {
+		config_get band $1 band
+		config_get onboarded $1 onboarded "0"
+
+		[ "$onboarded" = "0" ] && return
+
+		onboarded_bands="$onboarded_bands $band"
+	}
+
+	mapagent_enable_bk() {
+		config_get ifname $1 ifname
+		config_get band $1 band
+		config_get enabled $1 enabled
+
+		[ "$enabled" = "0" ] && return
+
+		for onboarded_band in $onboarded_bands
+		do
+			[ "$onboarded_band" != "$band" ] && continue
+
+			logger -t multiap "bsta_scan_on_enabled $ifname $band"
+			wpa_cli -i "$ifname" enable_network 0 > /dev/null 2>&1
+			wpa_cli -i "$ifname" reconnect > /dev/null 2>&1
+			wpa_cli -i "$ifname" save_config > /dev/null 2>&1
+		done
+	}
+
+	config_load mapagent
+	config_foreach mapagent_onboarded_bands bsta
+	config_foreach mapagent_enable_bk bsta
+}
+
+bsta_enable_all() {
+	mapagent_enable_bk() {
+		config_get ifname $1 ifname
+		uci -q set mapagent.$1.enabled="1"
+	}
+
+	config_load mapagent
+
+	config_foreach mapagent_enable_bk bsta
+	uci commit mapagent
+	bsta_scan_on_enabled
+}
+
+# arg = one interface to clear
+# no arg = clear all interfaces
+bsta_clear_bssid() {
+	local iface=$1
+
+	mapagent_remove_bssid() {
+		local iface=$2
+
+		config_get ifname $1 ifname
+
+		[ -n "$iface" -a "$iface" != "$ifname" ] && return
+
+		uci -q set mapagent.$1.enabled="1"
+		uci -q del mapagent.$1.bssid
+	}
+
+	wireless_remove_bssid() {
+		local iface=$2
+
+		config_get mode $1 mode
+		config_get ifname $1 ifname
+
+		[ "$mode" != "sta" ] && return
+
+		[ -n "$iface" -a "$iface" != "$ifname" ] && return
+
+		uci -q del wireless.$1.bssid
+		wpa_cli -i "$ifname" bssid 0 00:00:00:00:00:00 > /dev/null 2>&1
+		wpa_cli -i "$ifname" save_config > /dev/null 2>&1
+	}
+
+	config_load mapagent
+	config_foreach mapagent_remove_bssid bsta $iface
+	uci commit mapagent
+
+	config_load wireless
+	config_foreach wireless_remove_bssid wifi-iface $iface
+	uci commit wireless
+}
+
+# arg1 = ifname arg2 = bssid
+bsta_blacklist_bssid_set() {
+	local ifname="$1"
+	shift
+	local bssid="$@"
+
+	return
+
+	wpa_cli -i "$ifname" set_network 0 bssid_ignore "$bssid" > /dev/null 2>&1
+	wpa_cli -i "$ifname" save_config > /dev/null 2>&1
+}
+
+bsta_blacklist_bssid_clear() {
+	mapagent_blacklist_by_band() {
+		config_get ifname $1 ifname
+
+		wpa_cli -i "$ifname" set_network 0 bssid_ignore "" > /dev/null 2>&1
+		wpa_cli -i "$ifname" save_config > /dev/null 2>&1
+	}
+
+	return
+
+	config_load mapagent
+	config_foreach mapagent_blacklist_by_band bsta
+}
+
+bsta_disable_lower_priority() {
+	config_load mapagent
+
+	mapagent_get_priority() {
+		config_get ifname $1 ifname
+
+		[ "$ifname" != "$2" ] && return
+
+		config_get priority $1 priority "2"
+
+		echo "$priority"
+	}
+
+	mapagent_disable_lower_bk() {
+		mapagent_apply_wl_bsta() {
+			apply_config() {
+				local section="$1"
+				local bsta="$2"
+				local enabled="$3"
+
+				config_get ifname $section ifname
+
+				[ "$bsta" == "$ifname" ] || return
+
+				[ "$enabled" != "0" ] && return
+
+				wpa_cli -i "$ifname" disconnect > /dev/null 2>&1
+				wpa_cli -i "$ifname" disable_network 0 > /dev/null 2>&1
+				wpa_cli -i "$ifname" save_config > /dev/null 2>&1
+			}
+			local ifname="$1"
+			local enabled="$2"
+
+			[ "$enabled" != "0" ] && return
+
+			config_load wireless
+
+			config_foreach apply_config wifi-iface $ifname $enabled
+		}
+
+		local enabled="1"
+
+		config_get ifname $1 ifname
+		config_get priority $1 priority
+
+		[ "$ifname" != "$2" -a "$priority" -gt "$3" ] && enabled="0"
+
+		[ "$ifname" != "$2" -a "$enabled" = "1" ] && return
+
+		uci -q set mapagent.$1.enabled="$enabled"
+
+		(mapagent_apply_wl_bsta $ifname $enabled) > /dev/null
+	}
+
+	local bsta=$1
+
+	prio=$(config_foreach mapagent_get_priority bsta $bsta)
+	#echo bsta $bsta has prio $prio > /dev/console
+
+	config_foreach mapagent_disable_lower_bk bsta $bsta $prio
+	uci commit mapagent
+
+#	ubus call uci commit '{"config":"wireless"}'
+}
+
+
+bsta_use_link() {
+	config_load mapagent
+
+	mapagent_disable_bk() {
+		local bsta="$2"
+
+		config_get ifname $1 ifname
+		config_get enabled $1 enabled
+
+		[ "$bsta" = "$ifname" ] && return
+
+		wpa_cli -i "$ifname" disconnect > /dev/null 2>&1
+		wpa_cli -i "$ifname" disable_network 0 > /dev/null 2>&1
+		wpa_cli -i "$ifname" save_config > /dev/null 2>&1
+	}
+
+	local bsta=$1
+
+	config_foreach mapagent_disable_bk bsta $bsta
+}
+
+bsta_swap_to_link() {
+	bsta_disable_lower_priority $1
+	bsta_use_link $1
+
+	wpa_cli -i "$1" enable_network 0 > /dev/null
+	wpa_cli -i "$1" reconnect > /dev/null
+	wpa_cli -i "$1" save_config > /dev/null
+}
+
+set_uplink_backhaul_info() {
+	local ul_1905id=$1
+	local ul_mac=$2
+
+	(
+		flock -x 200
+		json_load "$(cat $MAPFILE)"
+		json_add_string "backhaul_device_id" "$ul_1905id"
+		json_add_string "backhaul_macddr" "$ul_mac"
+		json_dump > "$MAPFILE"
+		json_cleanup
+	) 200>/var/lock/map.backhaul.lock
+}
+
+set_uplink() {
+	local type=$1
+	local ifname=$2
+	local hwaddr
+
+	[ ! -d /var/run/multiap ] && mkdir -p /var/run/multiap
+
+	hwaddr="$(ifconfig $ifname | grep -i hwaddr | awk '{print $5}' | awk '{print tolower($0)}')"
+
+	json_init
+	json_add_string "type" "$type"
+	json_add_string "ifname" "$ifname"
+	json_add_string "macaddr" "$hwaddr"
+	(
+		flock -x 200
+		json_dump > "$MAPFILE"
+	) 200>/var/lock/map.backhaul.lock
+	json_cleanup
+
+	config_load mapagent
+
+	island_prevention="$(uci -q get mapagent.agent.island_prevention)"
+
+	if [ "$island_prevention" = "1" -a "$type" = "eth" ]; then
+		ubus call map.agent toggle_fh '{"enable":true, "prevent_island":true, "ifname":"all"}'
+	fi
+
+}
+
+unset_uplink() {
+	local type=${1:-wifi}
+
+	config_load mapagent
+
+	island_prevention="$(uci -q get mapagent.agent.island_prevention)"
+
+	if [ "$island_prevention" = "1" -a "$type" = "eth" ]; then
+		ubus call map.agent toggle_fh '{"enable":false, "prevent_island":true, "ifname":"all"}'
+	fi
+
+	(
+		flock -x 200
+		json_load "$(cat $MAPFILE)"
+		json_get_var bk_type type
+		json_cleanup
+
+		[ "$type" = "$bk_type" ] && rm -f "$MAPFILE" > /dev/null 2>&1
+	) 200>/var/lock/map.backhaul.lock
+}
+
+func=$1
+shift
+
+case "$func" in
+	wireless_teardown) wireless_teardown;;
+	setup_network) setup_network;;
+	setup_wireless) setup_wireless;;
+	write_credentials) write_credentials;;
+	sync_credentials) sync_credentials;;
+	bsta_steer) bsta_steer $@;;
+	set_network) set_network $@;;
+	write_bsta_config) write_bsta_config $@;;
+	teardown_iface) teardown_iface $@;;
+	bsta_to_wireless) bsta_to_wireless $@;;
+	sync_mapcontroller_from_wireless) sync_mapcontroller_from_wireless $@;;
+	ts) ts_sub $@;;
+	bsta_enable_all) bsta_enable_all $@;;
+	bsta_clear_bssid) bsta_clear_bssid $@;;
+	bsta_blacklist_bssid_set) bsta_blacklist_bssid_set $@;;
+	bsta_blacklist_bssid_clear) bsta_blacklist_bssid_clear $@;;
+	bsta_disable_lower_priority) bsta_disable_lower_priority $@;;
+	bsta_scan_on_enabled) bsta_scan_on_enabled $@;;
+	bsta_use_link) bsta_use_link $@;;
+	bsta_swap_to_link) bsta_swap_to_link $@;;
+	set_uplink) set_uplink $@;;
+	set_uplink_backhaul_info) set_uplink_backhaul_info $@;;
+	unset_uplink) unset_uplink $@;;
+	--help|help) usage;;
+	*) usage; exit 1;;
+esac
+
