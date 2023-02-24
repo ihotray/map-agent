@@ -88,7 +88,7 @@ int wifi_ubus_scan(struct ubus_context *ubus_ctx, const char *radio,
 		blobmsg_close_array(&bb, a);
 	}
 
-	ret = ubus_invoke(ubus_ctx, id, "scan_ex", bb.head, NULL, NULL, 3 * 1000);
+	ret = ubus_invoke(ubus_ctx, id, "scan_ex", bb.head, NULL, NULL, 30 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -112,7 +112,7 @@ int wifi_ubus_ap_set_state(struct ubus_context *ubus_ctx, const char *ifname, bo
 
 	blob_buf_init(&bb, 0);
 	ret = ubus_invoke(ubus_ctx, id, up ? "up" : "down",
-			  bb.head, NULL, NULL, 2 * 1000);
+			  bb.head, NULL, NULL, 20 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -162,7 +162,7 @@ int wifi_ubus_start_cac(struct ubus_context *ubus_ctx, const char *radio, int ch
 	blobmsg_add_u32(&bb, "bandwidth", bandwidth);
 	blobmsg_add_u32(&bb, "method", method);
 
-	ret = ubus_invoke(ubus_ctx, id, "start_cac", bb.head, NULL, NULL, 3 * 1000);
+	ret = ubus_invoke(ubus_ctx, id, "start_cac", bb.head, NULL, NULL, 30 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -186,7 +186,7 @@ int wifi_ubus_stop_cac(struct ubus_context *ubus_ctx, const char *radio)
 		goto out;
 
 	blob_buf_init(&bb, 0);
-	ret = ubus_invoke(ubus_ctx, id, "stop_cac", bb.head, NULL, NULL, 3 * 1000);
+	ret = ubus_invoke(ubus_ctx, id, "stop_cac", bb.head, NULL, NULL, 30 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -214,7 +214,7 @@ int wifi_ubus_del_neighbor(struct ubus_context *ubus_ctx, const char *ifname, ui
 	blob_buf_init(&bb, 0);
 	blobmsg_add_string(&bb, "bssid", bssidstr);
 	ret = ubus_invoke(ubus_ctx, id, "del_neighbor", bb.head,
-			  NULL, NULL, 2 * 1000);
+			  NULL, NULL, 20 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -251,7 +251,7 @@ int wifi_ubus_add_neighbor(struct ubus_context *ubus_ctx, const char *ifname,
 	blobmsg_add_u32(&bb, "reg", nbr->reg);
 	blobmsg_add_u32(&bb, "phy", nbr->phy);
 	ret = ubus_invoke(ubus_ctx, id, "add_neighbor", bb.head,
-			  NULL, NULL, 2 * 1000);
+			  NULL, NULL, 20 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -348,7 +348,7 @@ int wifi_ubus_list_neighbor(struct ubus_context *ubus_ctx, const char *ifname,
 
 	blob_buf_init(&bb, 0);
 	ret = ubus_invoke(ubus_ctx, id, "list_neighbor", bb.head,
-			  wifi_ubus_list_neighbor_cb, &ctx, 2 * 1000);
+			  wifi_ubus_list_neighbor_cb, &ctx, 20 * 1000);
 	blob_buf_free(&bb);
 
 	if (ctx.status)
@@ -381,7 +381,7 @@ int wifi_ubus_monitor_add_del(struct ubus_context *ubus_ctx, const char *ifname,
 	blob_buf_init(&bb, 0);
 	blobmsg_add_string(&bb, "sta", macaddrstr);
 	ret = ubus_invoke(ubus_ctx, id, add ? "monitor_add" : "monitor_del",
-			  bb.head, NULL, NULL, 2 * 1000);
+			  bb.head, NULL, NULL, 20 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -492,7 +492,7 @@ int wifi_ubus_monitor_get(struct ubus_context *ubus_ctx, const char *ifname,
 	blob_buf_init(&bb, 0);
 	blobmsg_add_string(&bb, "sta", macaddrstr);
 	ret = ubus_invoke(ubus_ctx, id, "monitor_get", bb.head,
-			  wifi_ubus_monitor_get_cb, &ctx, 2 * 1000);
+			  wifi_ubus_monitor_get_cb, &ctx, 20 * 1000);
 	blob_buf_free(&bb);
 
 	if (ctx.status)
@@ -712,7 +712,7 @@ int wifi_ubus_opclass_preferences(struct ubus_context *ubus_ctx, const char *rad
 	blob_buf_init(&bb, 0);
 	ret = ubus_invoke(ubus_ctx, id, "opclass_preferences", bb.head,
 			  wifi_ubus_opclass_preferences_cb, &ctx,
-			  2 * 1000);
+			  20 * 1000);
 
 	blob_buf_free(&bb);
 
@@ -783,7 +783,7 @@ int wifi_ubus_radio_status(struct ubus_context *ubus_ctx, const char *radio,
 	blob_buf_init(&bb, 0);
 	ret = ubus_invoke(ubus_ctx, id, "status", bb.head,
 			  wifi_ubus_radio_status_cb, &ctx,
-			  2 * 1000);
+			  20 * 1000);
 	blob_buf_free(&bb);
 
 	if (ctx.status)
@@ -817,7 +817,7 @@ int wifi_ubus_disconnect_sta(struct ubus_context *ubus_ctx, const char *ifname,
 	blobmsg_add_string(&bb, "sta", macstr);
 	blobmsg_add_u32(&bb, "reason", reason);
 
-	ret = ubus_invoke(ubus_ctx, id, "disconnect", bb.head, NULL, NULL, 1 * 1000);
+	ret = ubus_invoke(ubus_ctx, id, "disconnect", bb.head, NULL, NULL, 10 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -852,7 +852,7 @@ int wifi_ubus_restrict_sta(struct ubus_context *ubus_ctx, const char *ifname,
 	blobmsg_close_array(&bb, t);
 	blobmsg_add_u32(&bb, "enable", enable);
 
-	ret = ubus_invoke(ubus_ctx, id, "assoc_control", bb.head, NULL, NULL, 1 * 1000);
+	ret = ubus_invoke(ubus_ctx, id, "assoc_control", bb.head, NULL, NULL, 10 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -901,7 +901,7 @@ int wifi_ubus_req_btm(struct ubus_context *ubus_ctx, const char *ifname, uint8_t
 	}
 
 	ret = ubus_invoke(ubus_ctx, id, "request_btm", bb.head,
-			  NULL, NULL, 2 * 1000);
+			  NULL, NULL, 20 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -950,7 +950,7 @@ int wifi_ubus_request_transition(struct ubus_context *ubus_ctx, const char *ifna
 	blobmsg_add_u32(&bb, "mode", mode);
 
 	ret = ubus_invoke(ubus_ctx, id, "request_btm", bb.head,
-			  NULL, NULL, 2 * 1000);
+			  NULL, NULL, 20 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -980,7 +980,7 @@ int wifi_ubus_add_vendor_ie(struct ubus_context *ubus_ctx, const char *ifname, i
 	blobmsg_add_string(&bb, "oui", oui);
 	blobmsg_add_string(&bb, "data", data);
 
-	ret = ubus_invoke(ubus_ctx, id, "add_vendor_ie", bb.head, NULL, NULL, 1 * 1000);
+	ret = ubus_invoke(ubus_ctx, id, "add_vendor_ie", bb.head, NULL, NULL, 10 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -1011,7 +1011,7 @@ int wifi_ubus_del_vendor_ie(struct ubus_context *ubus_ctx, const char *ifname, i
 	if (data)
 		blobmsg_add_string(&bb, "data", data);
 
-	ret = ubus_invoke(ubus_ctx, id, "del_vendor_ie", bb.head, NULL, NULL, 1 * 1000);
+	ret = ubus_invoke(ubus_ctx, id, "del_vendor_ie", bb.head, NULL, NULL, 10 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -1064,7 +1064,7 @@ int wifi_ubus_get_4addr(struct ubus_context *ubus_ctx, const char *ifname, bool 
 
 	blob_buf_init(&bb, 0);
 	ret = ubus_invoke(ubus_ctx, id, "4addr", bb.head,
-			  wifi_ubus_get_4addr_cb, &ctx, 1 * 1000);
+			  wifi_ubus_get_4addr_cb, &ctx, 10 * 1000);
 	blob_buf_free(&bb);
 
 	if (ret || ctx.status)
@@ -1095,7 +1095,7 @@ int wifi_ubus_set_4addr(struct ubus_context *ubus_ctx, const char *ifname, bool 
 	blob_buf_init(&bb, 0);
 	blobmsg_add_u32(&bb, "enable", enable);
 
-	ret = ubus_invoke(ubus_ctx, id, "4addr", bb.head, NULL, NULL, 1 * 1000);
+	ret = ubus_invoke(ubus_ctx, id, "4addr", bb.head, NULL, NULL, 10 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -1426,7 +1426,7 @@ int wifi_ubus_ap_status(struct ubus_context *ubus_ctx, const char *ifname,
 	blob_buf_init(&bb, 0);
 	ret = ubus_invoke(ubus_ctx, id, "status", bb.head,
 			  wifi_ubus_ap_status_cb, &ctx,
-			  2 * 1000);
+			  20 * 1000);
 	blob_buf_free(&bb);
 
 	if (ctx.status)
@@ -1553,7 +1553,7 @@ int wifi_ubus_radio_scanresults(struct ubus_context *ubus_ctx, const char *radio
 	blob_buf_init(&bb, 0);
 	ret = ubus_invoke(ubus_ctx, id, "scanresults", bb.head,
 			  wifi_ubus_radio_scanresults_cb, &ctx,
-			  2 * 1000);
+			  20 * 1000);
 	blob_buf_free(&bb);
 
 	if (ctx.status)
@@ -1599,7 +1599,7 @@ int wifi_ubus_chan_switch(struct ubus_context *ubus_ctx, const char *ifname,
 	blobmsg_add_u8(&bb, "he", param->he);
 
 	ret = ubus_invoke(ubus_ctx, id, "chan_switch", bb.head,
-			  NULL, NULL, 2 * 1000);
+			  NULL, NULL, 20 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -1683,7 +1683,7 @@ int wifi_ubus_get_assoclist(struct ubus_context *ubus_ctx, const char *ifname,
 
 	blob_buf_init(&bb, 0);
 	ret = ubus_invoke(ubus_ctx, id, "assoclist", bb.head,
-			  wifi_ubus_ap_assoclist_cb, &ctx, 2 * 1000);
+			  wifi_ubus_ap_assoclist_cb, &ctx, 20 * 1000);
 	blob_buf_free(&bb);
 
 	*num = ctx.num;
@@ -1797,7 +1797,7 @@ int wifi_ubus_req_neighbor(struct ubus_context *ubus_ctx, const char *ifname,
 		__func__, __LINE__, ifname);
 
 	ret = ubus_invoke(ubus_ctx, id, "request_neighbor", bb.head,
-		NULL, NULL, 2 * 1000);
+		NULL, NULL, 20 * 1000);
 
 	if (ret) {
 		trace("[%s:%d] ubus call failed for %s send, ret = %d\n",
@@ -2039,7 +2039,7 @@ static int wifi_ubus_get_stas(struct ubus_context *ubus_ctx, const char *ifname,
 
 	ret = ubus_invoke(ubus_ctx, id, "stations", bb.head,
 			  wifi_ubus_get_stas_cb, &ctx,
-			  2 * 1000);
+			  20 * 1000);
 
 	blob_buf_free(&bb);
 
@@ -2085,7 +2085,7 @@ int wifi_ubus_sta_disconnect_ap(struct ubus_context *ubus_ctx, const char *ifnam
 	if (reason)
 		blobmsg_add_u32(&bb, "reason", reason);
 
-	ret = ubus_invoke(ubus_ctx, id, "disconnect", bb.head, NULL, NULL, 2 * 1000);
+	ret = ubus_invoke(ubus_ctx, id, "disconnect", bb.head, NULL, NULL, 20 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -2114,7 +2114,7 @@ static int wifi_ubus_subscribe_unsubscribe_frame(struct ubus_context *ubus_ctx,
 	blobmsg_add_u32(&bb, "type", type);
 	blobmsg_add_u32(&bb, "stype", stype);
 	ret = ubus_invoke(ubus_ctx, id, subscribe ? "subscribe_frame" : "unsubscribe_frame",
-			  bb.head, NULL, NULL, 2 * 1000);
+			  bb.head, NULL, NULL, 20 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -2229,7 +2229,7 @@ int wifi_ubus_ap_stats(struct ubus_context *ubus_ctx, const char *ifname,
 
 	blob_buf_init(&bb, 0);
 	ret = ubus_invoke(ubus_ctx, id, "stats", bb.head,
-			  wifi_ubus_ap_stats_cb, &ctx, 2 * 1000);
+			  wifi_ubus_ap_stats_cb, &ctx, 20 * 1000);
 	blob_buf_free(&bb);
 
 out:
@@ -2322,7 +2322,7 @@ int wifi_ubus_bsta_status(struct ubus_context *ubus_ctx, const char *ifname,
 	blob_buf_init(&bb, 0);
 	ret = ubus_invoke(ubus_ctx, id, "status", bb.head,
 			  wifi_ubus_bsta_status_cb, &ctx,
-			  2 * 1000);
+			  20 * 1000);
 	blob_buf_free(&bb);
 
 	if (ctx.status)

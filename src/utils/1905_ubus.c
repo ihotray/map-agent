@@ -122,7 +122,7 @@ struct cmdu_buff *ieee1905_ubus_buildcmdu(struct ubus_context *ubus_ctx,
 
 	ret = ubus_invoke(ubus_ctx, id, "buildcmdu",
 			b.head, ieee1905_ubus_buildcmdu_cb,
-			&ctx, 2000);
+			&ctx, 20000);
 
 	if (ctx.status)
 		ret = ctx.status;
@@ -240,7 +240,7 @@ int ieee1905_ubus_send_cmdu(struct ubus_context *ubus_ctx,
 	}
 
 	ret = ubus_invoke(ubus_ctx, id, "cmdu", bb.head,
-			ieee1905_ubus_send_cmdu_cb, &ctx, 2 * 1000);
+			ieee1905_ubus_send_cmdu_cb, &ctx, 20 * 1000);
 
 	if (ctx.status)
 		ret = ctx.status;
@@ -279,7 +279,7 @@ int ieee1905_ubus_set_vid(struct ubus_context *ubus_ctx,
 		goto out;
 	}
 
-	ret = ubus_invoke(ubus_ctx, id, "vlan", b.head, NULL, NULL, 2000);
+	ret = ubus_invoke(ubus_ctx, id, "vlan", b.head, NULL, NULL, 20000);
 	if (ret) {
 		dbg("|%s:%d| ubus call failed for |ieee1905 vlan|",
 					__func__, __LINE__);

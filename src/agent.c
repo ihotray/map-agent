@@ -437,7 +437,7 @@ int ubus_call_object(struct agent *a, wifi_object_t wobj,
 
 	blob_buf_init(&bb, 0);
 	ret = ubus_invoke(a->ubus_ctx, wobj, method, bb.head,
-				response_cb, priv, 2 * 1000);
+				response_cb, priv, 20 * 1000);
 	if (ret) {
 		err("Failed to get '%s' (ret = %d)\n", method, ret);
 		blob_buf_free(&bb);
@@ -2839,7 +2839,7 @@ int wifi_mod_bridge(struct agent *a, char *ifname, char *action)
 	id = ubus_get_object(a->ubus_ctx, cmd);
 	snprintf(cmd, sizeof(cmd), "%s_device", action);
 	ret = ubus_invoke(a->ubus_ctx, id, cmd, bb.head,
-			NULL, NULL, 3 * 1000);
+			NULL, NULL, 30 * 1000);
 
 	/* explicitly disable if removing from bridge */
 	if (!ret && !add) {
@@ -5022,7 +5022,7 @@ static int enumerate_wifi_objects(struct agent *a)
 
 	blob_buf_init(&bb, 0);
 	while ((ret = ubus_invoke(a->ubus_ctx, a->wifi, "status", bb.head,
-			_enumerate_wifi_objects, a, 2 * 1000) || !a->num_radios)
+			_enumerate_wifi_objects, a, 20 * 1000) || !a->num_radios)
 			&& retry < 5) {
 
 		err("|%s:%d| Failed to get wifi status(ret = %d), OR "\

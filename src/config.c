@@ -831,7 +831,7 @@ static int ubus_call(const char *object, const char *method,
 	}
 
 	// Invoke Ubus to get data from uspd
-	if (ubus_invoke(ctx, id, method, data->head, callback, cb_arg, 1000)) {
+	if (ubus_invoke(ctx, id, method, data->head, callback, cb_arg, 10000)) {
 		err("ubus call failed\n");
 		ubus_free(ctx);
 		return UBUS_STATUS_UNKNOWN_ERROR;
