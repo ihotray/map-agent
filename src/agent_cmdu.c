@@ -889,7 +889,7 @@ struct cmdu_buff *agent_gen_independent_ch_scan_response(struct agent *a,
 
 	trace("%s --->\n", __func__);
 
-	cmdu_data = cmdu_alloc_frame(0x10000);
+	cmdu_data = cmdu_alloc_frame(CH_SCAN_RESP_MAX_BYTES);
 	if (!cmdu_data) {
 		dbg("%s: -ENOMEM\n", __func__);
 		return NULL;
@@ -936,7 +936,7 @@ struct cmdu_buff *agent_gen_ch_scan_response_radio(struct agent *a,
 		return NULL;
 
 	/* Allocate the cmdu */
-	cmdu_data = cmdu_alloc_frame(0x10000);
+	cmdu_data = cmdu_alloc_frame(CH_SCAN_RESP_MAX_BYTES);
 	if (!cmdu_data) {
 		trace("%s: -ENOMEM\n", __func__);
 		return NULL;
@@ -1067,9 +1067,14 @@ struct cmdu_buff *agent_gen_ap_caps_response(struct agent *a,
 			goto error;
 
 #if (EASYMESH_VERSION > 2)
-		/* AP WiFi-6 Capabilities TLV */
-		// TODO
 		if (a->cfg.map_profile > 2) {
+			/* AP Wi-Fi 6 Capabilities TLV */
+			for (i = 0; i < a->num_radios; i++) {
+				ret = agent_gen_ap_wifi6_caps(a, resp, a->radios + i);
+				if (ret)
+					goto error;
+			}
+
 			/* Device 1905 Layer Security Capability TLV */
 			ret = agent_gen_device_1905_layer_security_cap(a, resp);
 			if (ret)

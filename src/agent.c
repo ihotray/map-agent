@@ -5234,8 +5234,9 @@ static void parse_dot11ax(struct netif_fh *fh, struct blob_attr *arg)
 	int max_tx_nss = 0;
 	int mcs_len = 0;
 	int offset = 0;
-	struct blob_attr *tb[26];
-	static const struct blobmsg_policy ap_attr[26] = {
+	struct blob_attr *tb[29];
+	struct wifi_wifi6_capabilities *wifi6_caps = &fh->caps.wifi6;
+	static const struct blobmsg_policy ap_attr[ARRAY_SIZE(tb)] = {
 		[0] = { .name = "dot11ax_5g_160_and_8080", .type = BLOBMSG_TYPE_BOOL },
 		[1] = { .name = "dot11ax_5g_160", .type = BLOBMSG_TYPE_BOOL },
 		[2] = { .name = "dot11ax_su_beamformer", .type = BLOBMSG_TYPE_BOOL },
@@ -5262,9 +5263,12 @@ static void parse_dot11ax(struct netif_fh *fh, struct blob_attr *arg)
 		[23] = { .name = "dot11ax_supp_max_rx_nss_8080", .type = BLOBMSG_TYPE_INT32 },
 		[24] = { .name = "dot11ax_supp_max_tx_mcs_8080", .type = BLOBMSG_TYPE_INT32 },
 		[25] = { .name = "dot11ax_supp_max_tx_nss_8080", .type = BLOBMSG_TYPE_INT32 },
+		[26] = { .name = "dot11ax_su_beamformee", .type = BLOBMSG_TYPE_BOOL },
+		[27] = { .name = "dot11ax_twt_requester", .type = BLOBMSG_TYPE_BOOL },
+		[28] = { .name = "dot11ax_twt_responder", .type = BLOBMSG_TYPE_BOOL },
 	};
 
-	blobmsg_parse(ap_attr, 26, tb, blobmsg_data(arg), blobmsg_data_len(arg));
+	blobmsg_parse(ap_attr, ARRAY_SIZE(ap_attr), tb, blobmsg_data(arg), blobmsg_data_len(arg));
 
 	if (tb[6])
 		parse_dot11ax_mcs(fh->caps.he, &mcs_len,
@@ -5305,7 +5309,7 @@ static void parse_dot11ax(struct netif_fh *fh, struct blob_attr *arg)
 	if (tb[22])
 		parse_dot11ax_mcs(fh->caps.he, &mcs_len,
 				blobmsg_get_u32(tb[22]),
-				blobmsg_get_u32(tb[24]), &max_rx_nss);
+				blobmsg_get_u32(tb[23]), &max_rx_nss);
 
 	if (tb[24])
 		parse_dot11ax_mcs(fh->caps.he, &mcs_len,
@@ -5327,6 +5331,39 @@ static void parse_dot11ax(struct netif_fh *fh, struct blob_attr *arg)
 	fh->caps.he[offset] |= ((blobmsg_get_bool(tb[5]) ? 1 : 0) << 3);
 	fh->caps.he[offset] |= ((blobmsg_get_bool(tb[5]) ? 1 : 0) << 2);
 	fh->caps.he[offset] |= ((blobmsg_get_bool(tb[5]) ? 1 : 0) << 1);
+
+	/* Populate Wi-Fi 6 caps structure */
+	/* HE 160 supported when HE160 TX & RX supported */
+	wifi6_caps->he160 = tb[19] && blobmsg_get_u32(tb[19]) &&
+			    tb[21] && blobmsg_get_u32(tb[21]);
+
+	wifi6_caps->he8080 = tb[23] && blobmsg_get_u32(tb[23]) &&
+			     tb[25] && blobmsg_get_u32(tb[25]);
+
+	/* 4, 8 or 12 bytes of supported MCS & NSS */
+	wifi6_caps->mcs_nss_len = mcs_len;
+	memcpy(wifi6_caps->mcs_nss_12, &fh->caps.he[1], mcs_len);
+
+	wifi6_caps->su_beamformer = tb[2] && blobmsg_get_bool(tb[2]);
+	wifi6_caps->su_beamformee = tb[26] && blobmsg_get_bool(tb[26]);
+	wifi6_caps->mu_beamformer = tb[3] && blobmsg_get_bool(tb[3]);
+	wifi6_caps->beamformee_le80 = false; // todo: ?
+	wifi6_caps->beamformee_gt80 = false; // todo: ?
+	wifi6_caps->ul_mumimo = tb[4] && blobmsg_get_bool(tb[4]);
+	wifi6_caps->ul_ofdma = tb[5] && blobmsg_get_bool(tb[5]);
+	wifi6_caps->dl_ofdma = tb[5] && blobmsg_get_bool(tb[5]);
+	wifi6_caps->max_dl_mumimo = 0;       // todo: ?
+	wifi6_caps->max_ul_mumimo = 0;       // todo: ?
+	wifi6_caps->max_dl_ofdma = 0;        // todo: ?
+	wifi6_caps->max_ul_ofdma = 0;        // todo: ?
+	wifi6_caps->rts = false;             // todo: ?
+	wifi6_caps->mu_rts = false;          // todo: ?
+	wifi6_caps->multi_bssid = false;     // todo: ?
+	wifi6_caps->mu_edca = false;         // todo: ?
+	wifi6_caps->twt_requester = tb[27] && blobmsg_get_bool(tb[27]);
+	wifi6_caps->twt_responder = tb[28] && blobmsg_get_bool(tb[28]);
+	wifi6_caps->spatial_reuse = false;   // todo: ?
+	wifi6_caps->anticipated_ch_usage = false; // todo: ?
 }
 
 static void parse_bk(struct ubus_request *req, int type,
@@ -5748,7 +5785,7 @@ void agent_init_interfaces_post_actions(struct agent *a)
 			/* Get & store scan results */
 			agent_radio_scanresults(a, re);
 			/* Finally update neighbor data */
-			update_neighbors_from_scanlist(a, re);
+			update_neighbors_from_scancache(a, &re->scanresults);
 		}
 	}
 }
@@ -7078,10 +7115,139 @@ void agent_set_post_scan_action_pref(struct agent *agent, const char *radio, boo
 	}
 }
 
+/* Allocates channel scan report CMDU and puts Timestamp TLV into it */
+struct cmdu_buff *agent_prepare_scan_cmdu(struct agent *a, struct tlv *tsp)
+{
+	trace("%s --->\n", __func__);
+
+	struct cmdu_buff *cmdu_data;
+
+	/* Allocate new fragment CMDU */
+	cmdu_data = cmdu_alloc_frame(CH_SCAN_RESP_CMDU_MAX_LEN);
+	if (!cmdu_data) {
+		dbg("%s: -ENOMEM\n", __func__);
+		return NULL;
+	}
+	cmdu_set_type(cmdu_data, CMDU_CHANNEL_SCAN_REPORT);
+	memcpy(cmdu_data->origin, a->cntlr_almac, 6);
+
+	/* Put timestamp TLV to the fragment CMDU */
+	if (cmdu_copy_tlvs(cmdu_data, &tsp, 1)) {
+		dbg("%s: error: cmdu_put_tlv()\n", __func__);
+		return NULL;
+	}
+	dbg("|%s:%d| added MAP_TLV_TIMESTAMP\n", __func__, __LINE__);
+
+	return cmdu_data;
+}
+
+/* Splits Channel Scan Report TLVs into fragment CMDUs.
+ * Sends fragmet CMDUs to controller.
+ */
+static int agent_send_ch_scan_rsp_frag(struct agent *a, struct cmdu_buff *cmdu)
+{
+	trace("agent: %s: --->\n", __func__);
+
+	struct tlv_policy d_policy_scan[] = {
+		[0] = {
+			.type = MAP_TLV_CHANNEL_SCAN_RES,
+			.present = TLV_PRESENT_MORE,
+			.minlen = 9
+		}
+	};
+	struct tlv *tv_tsp[1][16];	/* Timestamp TLV */
+	struct tlv *tv_scan[256];	/* Channel Scan Results TLVs */
+	int i;
+	int num_tlv = 256, num_tlv_copied = 0;
+	int ret = 0;
+	struct cmdu_buff *frag_cmdu = NULL;
+
+	if (cmdu->datalen < CH_SCAN_RESP_CMDU_MAX_LEN)
+		/* No fragmentation required, just send the CMDU as is */
+		return agent_send_cmdu(a, cmdu);
+
+	/* If the number of neighbors detected during a channel scan would
+	 * mean that the channel scan report message would not fit within
+	 * one 1905 CMDU, the Multi-AP Agent shall split the channel scan
+	 * report across multiple Channel Scan Result TLVs by splitting
+	 * the information related to sets of neighbor BSSs into separate
+	 * Channel Scan Result TLVs and setting the NumberofNeighbors field
+	 * to the number of neighbors contained in the corresponding TLV.
+	 */
+
+	/* Note: assuming neighbors are already evenly split between TLVs */
+
+	ret = map_cmdu_parse_tlvs(cmdu, tv_tsp, 2, a->cfg.map_profile);
+	if (ret) {
+		dbg("%s: cmdu_parse_tlvs(profile=%d) failed, err = (%d) '%s'\n",
+		    __func__, a->cfg.map_profile, ieee1905_error,
+		    ieee1905_strerror(ieee1905_error));
+		return -1;
+	}
+
+	if (!tv_tsp[0][0]) {
+		dbg("%s: Missing TIMESTAMP_TLV!\n", __func__);
+		return -1;
+	}
+
+	ret = cmdu_parse_tlv_single(cmdu, tv_scan, d_policy_scan, &num_tlv);
+	if (ret) {
+		dbg("%s: map_cmdu_parse_tlvs failed,  err = (%d) '%s'\n",
+		    __func__, map_error, map_strerror(map_error));
+		return -1;
+	}
+
+	if (!tv_scan[0]) {
+		dbg("%s: Missing CHANNEL SCAN RESULT_TLV!\n", __func__);
+		return -1;
+	}
+
+	tv_tsp[0][0]->len = tlv_length(tv_tsp[0][0]); // FIXME
+	frag_cmdu = agent_prepare_scan_cmdu(a, tv_tsp[0][0]);
+	if (WARN_ON(!frag_cmdu))
+		return -1;
+
+	for (i = 0; i < num_tlv; i++) {
+		uint16_t tlv_len = tlv_length(tv_scan[i]);
+
+		if (tlv_total_length(tv_scan[i]) > frag_cmdu->end - frag_cmdu->tail) {
+			/* No space left for current TLV in CMDU buffer */
+			cmdu_put_eom(frag_cmdu);
+			agent_send_cmdu(a, frag_cmdu);
+			cmdu_free(frag_cmdu);
+
+			num_tlv_copied = 0;
+
+			/* Create next fragment and put next TLVs into it */
+			frag_cmdu = agent_prepare_scan_cmdu(a, tv_tsp[0][0]);
+		}
+
+		/* Add TLV to CMDU & continue */
+		tv_scan[i]->len = tlv_len; // FIXME: assign len smwhr else
+		if (cmdu_copy_tlvs(frag_cmdu, &tv_scan[i], 1)) {
+			dbg("%s:%d copy TLVs failed, end = %p, tail = %p, len = %d\n",
+			    __func__, __LINE__,
+			    frag_cmdu->end, frag_cmdu->tail, tv_scan[i]->len);
+			return -1;
+		}
+		num_tlv_copied++;
+	}
+
+	if (num_tlv_copied) { /* avoid sending timestamp alone */
+		cmdu_put_eom(frag_cmdu);
+		agent_send_cmdu(a, frag_cmdu);
+	}
+
+	cmdu_free(frag_cmdu);
+
+	return 0;
+}
+
 int agent_send_ch_scan_response(struct agent *a, struct wifi_netdev *ndev,
 		struct wifi_scan_request_radio *req)
 {
 	struct cmdu_buff *cmdu_data = NULL;
+	int ret = 0;
 
 	dbg("%s: called.\n", __func__);
 
@@ -7112,10 +7278,11 @@ int agent_send_ch_scan_response(struct agent *a, struct wifi_netdev *ndev,
 	}
 
 	/* Send the response cmdu */
-	agent_send_cmdu(a, cmdu_data);
+	ret = agent_send_ch_scan_rsp_frag(a, cmdu_data);
+
 	cmdu_free(cmdu_data);
 
-	return 0;
+	return ret;
 }
 
 bool agent_ch_scan_succesful(struct agent *a)

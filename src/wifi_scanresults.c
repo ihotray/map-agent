@@ -20,12 +20,31 @@
 #include "wifi_opclass.h"
 #include "wifi_scanresults.h"
 
+struct wifi_scanresults_entry *wifi_scanresults_get_entry(
+		struct wifi_scanresults *results, uint8_t *bssid)
+{
+	struct wifi_scanresults_entry *entry = NULL;
+	int i;
+
+	if (!results)
+		return NULL;
+
+	/* lookup entry in results by bssid */
+	for (i = 0; i < results->entry_num; i++) {
+		entry = &results->entry[i];
+
+		if (!memcmp(bssid, entry->bss.bssid, 6))
+			/* entry found */
+			return entry;
+	}
+
+	return NULL;
+}
+
 static int _wifi_scanresults_update(struct wifi_scanresults *results,
 		struct wifi_radio_opclass *opclass, struct wifi_bss *bss)
 {
 	struct wifi_scanresults_entry *entry;
-	bool found = false;
-	int i;
 
 	if (!results)
 		return -1;
@@ -33,18 +52,9 @@ static int _wifi_scanresults_update(struct wifi_scanresults *results,
 	if (!bss)
 		return -1;
 
-	/* lookup entry in results by bssid */
-	for (i = 0; i < results->entry_num; i++) {
-		entry = &results->entry[i];
+	entry = wifi_scanresults_get_entry(results, bss->bssid);
 
-		if (!memcmp(bss->bssid, entry->bss.bssid, 6)) {
-			/* entry found */
-			found = true;
-			break;
-		}
-	}
-
-	if (!found) {
+	if (!entry) {
 		if (results->entry_num < SCANRESULTS_MAX_NUM) {
 			/* add new entry at the end */
 			entry = &results->entry[results->entry_num];
@@ -61,9 +71,9 @@ static int _wifi_scanresults_update(struct wifi_scanresults *results,
 	/* copy */
 	memcpy(&entry->bss, bss, sizeof(struct wifi_bss));
 	/* always calculate opclass */
-	entry->opclass = wifi_opclass_get_id(opclass,
+	entry->opclass = wifi_opclass_find_id_from_channel(opclass,
 					     bss->channel,
-					     20); /* TODO: curr_bw */
+					     wifi_bw_to_bw(bss->curr_bw));
 
 	return 0;
 }

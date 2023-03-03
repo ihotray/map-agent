@@ -53,11 +53,43 @@ struct wifi_mcs {
 	uint16_t vht_mcs_txmap;
 };
 
+struct wifi_wifi6_capabilities {
+	bool he160;
+	bool he8080;
+	uint8_t mcs_nss_len;
+	union {
+		uint8_t mcs_nss_4[4];
+		uint8_t mcs_nss_8[8];
+		uint8_t mcs_nss_12[12];
+	};
+	bool su_beamformer;
+	bool su_beamformee;
+	bool mu_beamformer;
+	bool beamformee_le80;
+	bool beamformee_gt80;
+	bool ul_mumimo;
+	bool ul_ofdma;
+	bool dl_ofdma;
+	uint8_t max_dl_mumimo;
+	uint8_t max_ul_mumimo;
+	uint8_t max_dl_ofdma;
+	uint8_t max_ul_ofdma;
+	bool rts;
+	bool mu_rts;
+	bool multi_bssid;
+	bool mu_edca;
+	bool twt_requester;
+	bool twt_responder;
+	bool spatial_reuse;
+	bool anticipated_ch_usage;
+};
+
 struct wifi_caps_element {
 	uint8_t ht;
 	uint8_t vht[6];
 	uint8_t he[15];		/* 1 (supp-mcs-len), 12 (Tx Rx mcs), 2 (others) */
 	struct wifi_mcs mcs;
+	struct wifi_wifi6_capabilities wifi6;
 	bool wmm;
 };
 

@@ -82,6 +82,7 @@ int send_failed_connection_msg(void *agent, uint8_t *sta, int status_code, int r
 int agent_apply_traffic_separation(struct agent *a);
 int agent_disable_traffic_separation(struct agent *a);
 
+void update_neighbors_from_scancache(struct agent *a, struct wifi_scanresults *results);
 void update_neighbors_from_scanlist(struct agent *a, struct wifi_radio_element *re);
 int wifi_radio_update_opclass_preferences(struct agent *a, const char *radio, bool send_report);
 int wifi_radio_scan_req_all(struct agent *a, const char *radio);

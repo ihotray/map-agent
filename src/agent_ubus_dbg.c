@@ -449,7 +449,7 @@ static int dbg_scancache_dump(struct ubus_context *ctx, struct ubus_object *obj,
 			hwaddr_ntoa(bss->bssid, bssidstr);
 			blobmsg_add_string(&bb, "bssid", bssidstr);
 
-			blobmsg_add_u32(&bb, "opclass_HT20", entry->opclass);
+			blobmsg_add_u32(&bb, "opclass", entry->opclass);
 			blobmsg_add_u32(&bb, "channel", bss->channel);
 			blobmsg_add_string(&bb, "ssid", (char *) bss->ssid);
 			bandwidth = wifi_bw_to_bw(bss->curr_bw);

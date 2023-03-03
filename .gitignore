@@ -12,3 +12,4 @@ src/mapagent
 **/dynbhd
 .configured_*
 .pkgdir
+._*

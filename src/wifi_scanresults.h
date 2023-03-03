@@ -23,6 +23,8 @@ struct wifi_scanresults {
 	struct wifi_scanresults_entry entry[SCANRESULTS_MAX_NUM];
 };
 
+struct wifi_scanresults_entry *wifi_scanresults_get_entry(
+		struct wifi_scanresults *results, uint8_t *bssid);
 int wifi_scanresults_add(struct wifi_scanresults *results,
 		struct wifi_radio_opclass *opclass, struct wifi_bss *bsss,
 		int bss_num);

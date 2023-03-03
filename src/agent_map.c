@@ -5258,8 +5258,8 @@ static void handle_wifi_radio_scan_post_action_opclass(struct agent *a,
 	re->post_scan_action.opclass_preferences = false;
 }
 
-static void update_neighbor_params(struct agent *a,
-		uint8_t *bssid, uint8_t classid, uint8_t channel)
+static void update_neighbor_params(struct agent *a, uint8_t *bssid,
+		uint8_t classid, uint8_t channel, const struct timespec *tsp)
 {
 	dbg("|%s:%d| updating reg for neighbor " MACFMT "\n",
 	    __func__, __LINE__, MAC2STR(bssid));
@@ -5273,11 +5273,13 @@ static void update_neighbor_params(struct agent *a,
 	list_for_each_entry(p, &a->fhlist, list) {
 		list_for_each_entry(n, &p->nbrlist, list) {
 			if (!memcmp(n->nbr.bssid, bssid, 6)) {
-
 				n->nbr.reg = classid;
 				n->nbr.channel = channel;
 				/* refresh last seen */
-				timestamp_update(&n->tsp);
+				if (!tsp)
+					timestamp_update(&n->tsp);
+				else
+					n->tsp = *tsp;
 
 				n->flags &= ~NBR_FLAG_DRV_UPDATED;
 				reschedule_nbrlist_update(p);
@@ -5286,6 +5288,26 @@ static void update_neighbor_params(struct agent *a,
 	}
 }
 
+/* Uses data collected in scan cache to update neighbor
+ * data, in particular opclass and channel information.
+ */
+void update_neighbors_from_scancache(struct agent *a,
+		struct wifi_scanresults *results)
+{
+	int i;
+	struct wifi_scanresults_entry *e;
+
+	for (i = 0; i < results->entry_num; i++) {
+		e = &results->entry[i];
+		update_neighbor_params(a,
+				e->bss.bssid,
+				e->opclass,
+				e->bss.channel,
+				&e->tsp);
+	}
+}
+
+/* TODO: deprecate */
 void update_neighbors_from_scanlist(struct agent *a,
 		struct wifi_radio_element *re)
 {
@@ -5311,7 +5333,8 @@ void update_neighbors_from_scanlist(struct agent *a,
 				update_neighbor_params(a,
 							ch_scanlist->nbrlist[k].bssid,
 							srel->opclass_scanlist[i].opclass,
-							ch_scanlist->channel);
+							ch_scanlist->channel,
+							NULL);
 			}
 		}
 	}
@@ -5326,7 +5349,7 @@ static void handle_wifi_radio_scan_post_action_scanres(struct agent *a,
 	agent_radio_scanresults(a, re);
 
 	/* Use scan results to update neighbor data (channel & opclass) */
-	update_neighbors_from_scanlist(a, re);
+	update_neighbors_from_scancache(a, &re->scanresults);
 }
 
 static void handle_wifi_radio_scan_post_actions(struct agent *a,

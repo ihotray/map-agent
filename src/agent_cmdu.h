@@ -10,6 +10,10 @@
 #ifndef MAPAGENT_CMDU_H
 #define MAPAGENT_CMDU_H
 
+/* Arbitrarily chosen big number, frame will be split before sending */
+#define CH_SCAN_RESP_MAX_BYTES 10000
+#define CH_SCAN_RESP_CMDU_MAX_LEN 1400
+
 struct cmdu_buff *agent_gen_ap_autoconfig_search(struct agent *a,
 		struct wifi_radio_element *radio, uint8_t profile);
 struct cmdu_buff *agent_gen_ap_metrics_response(struct agent *a,

@@ -12,6 +12,9 @@
 
 #define VENDOR_SPECIFIC_TYPE_DEPTH 0x0a
 
+#define TIMESTAMP_TLV_MAX_LEN 128
+#define CH_SCAN_RESP_TLV_MAX_LEN (1400 - (TIMESTAMP_TLV_MAX_LEN) - 128)
+
 #define BUF_PUT_BE64(b, v)      buf_put_be64((uint8_t *)&(b), v)
 
 #ifdef EASYMESH_VENDOR_EXT
@@ -36,6 +39,10 @@ int agent_gen_ap_ht_caps(struct agent *a,
 		struct cmdu_buff *cmdu, uint32_t radio_index);
 int agent_gen_ap_he_caps(struct agent *a,
 		struct cmdu_buff *cmdu, uint32_t radio_index);
+#if (EASYMESH_VERSION > 2)
+int agent_gen_ap_wifi6_caps(struct agent *a,
+		struct cmdu_buff *cmdu, struct wifi_radio_element *radio);
+#endif
 int agent_gen_ap_caps(struct agent *a,
 		struct cmdu_buff *cmdu);
 int agent_gen_ap_radio_basic_cap(struct agent *a,

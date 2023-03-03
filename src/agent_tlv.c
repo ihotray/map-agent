@@ -128,6 +128,98 @@ int agent_gen_ap_he_caps(struct agent *a,
 	return 0;
 }
 
+#if (EASYMESH_VERSION > 2)
+int agent_gen_ap_wifi6_caps(struct agent *a,
+		struct cmdu_buff *cmdu, struct wifi_radio_element *radio)
+{
+	struct tlv *t;
+	struct netif_fh *fh;
+	int offset = 0;
+	struct tlv_ap_wifi6_caps *caps_data;
+	struct wifi6_agent_role *role_data;
+	struct wifi6_agent_role_other_caps *role_other_caps_data;
+	uint8_t mcs_len = 0;
+	const struct wifi_wifi6_capabilities *src_wifi6_caps = NULL;
+
+	t = cmdu_reserve_tlv(cmdu, 48);
+	if (!t)
+		return -1;
+
+	t->type = MAP_TLV_AP_WIFI6_CAPS;
+	caps_data = (struct tlv_ap_wifi6_caps *) t->data;
+
+	memcpy(caps_data->ruid, radio->macaddr, sizeof(caps_data->ruid));
+	offset += sizeof(caps_data->ruid);
+
+	/* TODO: Currenlty only caps for AGENT_ROLE_AP are populated. */
+	/* Decide whether/how caps for backhaul STA role shall be provided. */
+	caps_data->num_roles = 1;
+	offset += sizeof(caps_data->num_roles);
+
+	fh = wifi_radio_to_ap(a, radio->name);
+	if (!fh)
+		return -1;
+
+	src_wifi6_caps = &fh->caps.wifi6;
+
+	role_data = (struct wifi6_agent_role *)(t->data + offset);
+
+	role_data->caps |= AGENT_ROLE_AP << 6;
+	role_data->caps |= src_wifi6_caps->he160 ? HE160_SUPPORTED : 0;
+	role_data->caps |= src_wifi6_caps->he8080 ? HE8080_SUPPORTED : 0;
+
+	mcs_len = src_wifi6_caps->mcs_nss_len;
+	role_data->caps |= mcs_len & MCS_NSS_LEN_MASK;
+
+	offset += sizeof(role_data->caps);
+
+	if (mcs_len > 0)
+		memcpy(role_data->mcs_nss_12, src_wifi6_caps->mcs_nss_12, mcs_len);
+
+	offset += mcs_len;
+
+	role_other_caps_data =
+		(struct wifi6_agent_role_other_caps *)(t->data + offset);
+
+	role_other_caps_data->beamform_caps |= src_wifi6_caps->su_beamformer ? SU_BEAMFORMER_SUPPORTED : 0;
+	role_other_caps_data->beamform_caps |= src_wifi6_caps->su_beamformee ? SU_BEAMFORMEE_SUPPORTED : 0;
+	role_other_caps_data->beamform_caps |= src_wifi6_caps->mu_beamformer ? MU_B_FORMER_STATUS_SUPPORTED : 0;
+	role_other_caps_data->beamform_caps |= src_wifi6_caps->beamformee_le80 ? B_FORMEE_STS_LE_80_SUPPORTED : 0;
+	role_other_caps_data->beamform_caps |= src_wifi6_caps->beamformee_gt80 ? B_FORMEE_STS_GT_80_SUPPORTED : 0;
+	role_other_caps_data->beamform_caps |= src_wifi6_caps->ul_mumimo ? UL_MU_MIMO_SUPPORTED : 0;
+	role_other_caps_data->beamform_caps |= src_wifi6_caps->ul_ofdma ? UL_OFDMA_SUPPORTED : 0;
+	role_other_caps_data->beamform_caps |= src_wifi6_caps->dl_ofdma ? DL_OFDMA_SUPPORTED : 0;
+
+	role_other_caps_data->max_mu_mimo_users |=
+		(src_wifi6_caps->max_dl_mumimo << 4) & MAX_NUM_USRS_DL_MU_MIMO_MASK;
+	role_other_caps_data->max_mu_mimo_users |=
+		(src_wifi6_caps->max_ul_mumimo << 0) & MAX_NUM_USRS_UL_MU_MIMO_MASK;
+
+	role_other_caps_data->max_dl_ofdma_users = src_wifi6_caps->max_dl_ofdma;
+	role_other_caps_data->max_ul_ofdma_users = src_wifi6_caps->max_ul_ofdma;
+
+	role_other_caps_data->other_caps |= src_wifi6_caps->rts ? RTS_SUPPORTED : 0;
+	role_other_caps_data->other_caps |= src_wifi6_caps->mu_rts ? MU_RTS_SUPPORTED : 0;
+	role_other_caps_data->other_caps |= src_wifi6_caps->multi_bssid ? MULTI_BSSID_SUPPORTED : 0;
+	role_other_caps_data->other_caps |= src_wifi6_caps->mu_edca ? MU_EDCA_SUPPORTED : 0;
+	role_other_caps_data->other_caps |= src_wifi6_caps->twt_requester ? TWT_REQUESTER_SUPPORTED : 0;
+	role_other_caps_data->other_caps |= src_wifi6_caps->twt_responder ? TWT_RESPONDER_SUPPORTED : 0;
+	role_other_caps_data->other_caps |= src_wifi6_caps->spatial_reuse ? SPATIAL_REUSE_SUPPORTED : 0;
+	role_other_caps_data->other_caps |= src_wifi6_caps->anticipated_ch_usage ? ACU_SUPPORTED : 0;
+
+
+	offset += sizeof(struct wifi6_agent_role_other_caps);
+	t->len = offset;
+
+	if (cmdu_put_tlv(cmdu, t)) {
+		fprintf(stderr, "%s: error: cmdu_put_tlv()\n", __func__);
+		return -1;
+	}
+
+	return 0;
+}
+#endif /* EASYMESH_VERSION > 2 */
+
 int agent_gen_ap_caps(struct agent *a,
 		struct cmdu_buff *cmdu)
 {
@@ -3040,7 +3132,7 @@ int agent_gen_timestamp_tlv(struct agent *agent, struct cmdu_buff *frm)
 {
 	int ret;
 	struct tlv *t;
-	char tsp[64] = {0};
+	char tsp[TIMESTAMP_TLV_MAX_LEN] = {0};
 	struct tlv_timestamp *data;
 	/* Allocate the TLV of the cmdu_data */
 	t = cmdu_reserve_tlv(frm, 256);
@@ -3063,52 +3155,149 @@ int agent_gen_timestamp_tlv(struct agent *agent, struct cmdu_buff *frm)
 	return 0;
 }
 
+/* Updates Scan Result TLV's NumberOfNeighbors */
+void scan_result_tlv_update_num_nbr(struct tlv *t, uint32_t num_nbr)
+{
+	uint8_t status;
+	uint8_t ts_len;
+	int offset = 0;
+
+	offset += 6; /* RUID */
+	offset += 1; /* opclass */
+	offset += 1; /* channel */
+	status = t->data[offset];
+	offset += 1; /* status code */
+
+	/* Nothing to update */
+	if (status != CH_SCAN_STATUS_SUCCESS)
+		return;
+
+	ts_len = t->data[offset];
+	offset += 1; /* timestamp len */
+	offset += ts_len; /* timestamp */
+	offset += 1; /* utilization */
+	offset += 1; /* noise */
+	/* num neighbors */
+	BUF_PUT_BE16(t->data[offset], num_nbr);
+}
+
+/* Reserves reserve_len bytes for scan response TLV and fills in repeatable data */
+struct tlv *cmdu_reserve_scan_response_tlv(struct cmdu_buff *cmdu,
+		int reserve_len, char *tsp, uint8_t *radio_mac, uint8_t opclass_id,
+		struct wifi_scanres_channel_element *ch, uint8_t status, int *offset)
+{
+	trace("%s ---->\n", __func__);
+
+	struct tlv *t;
+	*offset = 0;
+
+	t = cmdu_reserve_tlv(cmdu, reserve_len);
+	if (!t)
+		return NULL;
+
+	t->type = MAP_TLV_CHANNEL_SCAN_RES;
+	memcpy(&t->data[*offset], radio_mac, 6);
+	*offset += 6;
+	t->data[*offset] = opclass_id;	/* opclass */
+	*offset += 1;
+	t->data[*offset] = ch->channel;	/* channel */
+	*offset += 1;
+	t->data[*offset] = status;		/* status code */
+	*offset += 1;
+
+	/* Put (non-success) status code only */
+	if (status != CH_SCAN_STATUS_SUCCESS)
+		return t;
+
+	t->data[*offset] = strlen(ch->tsp) + 1;		/* timestamp len */
+	*offset += 1;
+	memcpy(&t->data[*offset], ch->tsp, strlen(ch->tsp));	/* timestamp */
+	*offset += strlen(ch->tsp);
+	t->data[*offset] = '\0';
+	*offset += 1;
+	t->data[*offset] = ch->utilization;	/* utilization */
+	*offset += 1;
+	t->data[*offset] = ch->anpi;		/* noise */
+	*offset += 1;
+	/* num neighbors */
+	BUF_PUT_BE16(t->data[*offset], ch->num_neighbors);
+	*offset += 2;
+
+	return t;
+}
+
+/* Puts Channel Scan Response TLV(s) into CMDU. Splits neighbors evenly
+ * between TLVs so that TLV is always less than CH_SCAN_RESP_MAX_DATALEN.
+ */
 int agent_gen_ch_scan_response_tlv(struct agent *a, struct cmdu_buff *cmdu,
 			uint8_t *radio_mac, uint8_t opclass_id,
 			struct wifi_scanres_channel_element *ch, uint8_t status)
 {
+	trace("%s ---->\n", __func__);
+
+	char tsp[32] = {0};
 	struct tlv *t;
 	uint8_t bssload_elem_pres = CH_SCAN_RESULT_BSSLOAD_PRESENT;
 	int i, ret, offset = 0;
-	char tsp[32] = {0};
-	int reserve_len = 2048;
-
-	t = cmdu_reserve_tlv(cmdu, reserve_len);
-	if (!t)
-		return -1;
+	int reserve_len = CH_SCAN_RESP_TLV_MAX_LEN;
+	/* TODO/FIXME
+	 * add the total scan duration for active scan
+	 */
+	uint32_t scan_duration = 0;
+	uint32_t num_nbr = 0;
 
 	trace("\t INFO: radio " MACFMT ", channel %d\n",
 		  MAC2STR(radio_mac), ch->channel);
 
-	t->type = MAP_TLV_CHANNEL_SCAN_RES;
-	memcpy(&t->data[offset], radio_mac, 6);
-	offset += 6;
-	t->data[offset++] = opclass_id;		/* opclass */
-	t->data[offset++] = ch->channel;	/* channel */
-	t->data[offset++] = status;			/* status code */
+	get_timestamp(NULL, tsp);
+	memcpy(ch->tsp, tsp, strlen(tsp));
+	t = cmdu_reserve_scan_response_tlv(cmdu, reserve_len,
+				tsp, radio_mac, opclass_id, ch, status, &offset);
+	if (!t)
+		return -1;
 
 	/* Put (non-success) status code only */
 	if (status != CH_SCAN_STATUS_SUCCESS)
 		goto put_tlv;
 
-	get_timestamp(NULL, tsp);
-	memcpy(ch->tsp, tsp, strlen(tsp));
-	t->data[offset++] = strlen(ch->tsp) + 1;		/* timestamp len */
-	memcpy(&t->data[offset], ch->tsp, strlen(ch->tsp));	/* timestamp */
-	offset += strlen(ch->tsp);
-	t->data[offset++] = '\0';
-	t->data[offset++] = ch->utilization;	/* utilization */
-	t->data[offset++] = ch->anpi;		/* noise */
-	/* num neighbors */
-	BUF_PUT_BE16(t->data[offset], ch->num_neighbors);
-	offset += 2;
 	for (i = 0; i < ch->num_neighbors; i++) {
 		char bw_str[16] = {0};
-
 		struct wifi_scanres_neighbor_element *nbr = ch->nbrlist + i;
 
-		if ((offset + 6 + 1 + strlen(nbr->ssid) + 2) >= reserve_len)
-			goto out_of_mem;
+		snprintf(bw_str, 15, "%u", nbr->bw);
+
+		/* Check if nbr data will fit within TLV limits */
+		if ((offset + 18 + strlen(nbr->ssid) + strlen(bw_str)) >= reserve_len) {
+			/* Always add scan duration and scan type to TLV */
+			BUF_PUT_BE32(t->data[offset], scan_duration);
+			offset += 4;
+			t->data[offset++] = SCAN_RESULT_SCAN_TYPE;
+
+			/* Update the TLV length */
+			t->len = offset;
+			/* Update NumberOfNeighbors */
+			if (num_nbr != ch->num_neighbors)
+				scan_result_tlv_update_num_nbr(t, num_nbr);
+			/* Put intermediate TLV into CMDU ... */
+			ret = cmdu_put_tlv(cmdu, t);
+			if (ret) {
+				fprintf(stderr, "%s: error: cmdu_put_tlv()\n", __func__);
+				return -1;
+			}
+
+			/* ... and start over */
+			t = cmdu_reserve_scan_response_tlv(cmdu,
+						reserve_len,
+						tsp,
+						radio_mac,
+						opclass_id,
+						ch,
+						status,
+						&offset);
+			if (!t)
+				return -1;
+			num_nbr = 0;
+		}
 
 		memcpy(&t->data[offset], nbr->bssid, 6);	/* bssid */
 		offset += 6;
@@ -3117,10 +3306,6 @@ int agent_gen_ch_scan_response_tlv(struct agent *a, struct cmdu_buff *cmdu,
 		memcpy(&t->data[offset], nbr->ssid, strlen(nbr->ssid));
 		offset += strlen(nbr->ssid);
 		t->data[offset++] = rssi_to_rcpi(nbr->rssi);	/* rcpi */
-		snprintf(bw_str, 15, "%u", nbr->bw);
-
-		if ((offset + strlen(bw_str) + 1) >= reserve_len)
-			goto out_of_mem;
 
 		t->data[offset++] = strlen(bw_str); //+ 1;		/* BW length */
 		memcpy(&t->data[offset], bw_str, strlen(bw_str));
@@ -3134,22 +3319,19 @@ int agent_gen_ch_scan_response_tlv(struct agent *a, struct cmdu_buff *cmdu,
 			BUF_PUT_BE16(t->data[offset], nbr->num_stations);	/* station count */
 			offset += 2;
 		}
+		num_nbr++;
 	}
 
-	/* TODO/FIXME
-	 * add the total scan duration for active acan
-	 */
-	if ((offset + 5) > reserve_len)
-		goto out_of_mem;
-
-	BUF_PUT_BE32(t->data[offset], 0);		/* scan duration */
+	BUF_PUT_BE32(t->data[offset], scan_duration);	/* scan duration */
 	offset += 4;
 	t->data[offset++] = SCAN_RESULT_SCAN_TYPE;	/* scan type */
 
 put_tlv:
 	/* update the tlv length */
 	t->len = offset;
-
+	/* Update NumberOfNeighbors */
+	if (num_nbr != ch->num_neighbors)
+		scan_result_tlv_update_num_nbr(t, num_nbr);
 	ret = cmdu_put_tlv(cmdu, t);
 	if (ret) {
 		fprintf(stderr, "%s: error: cmdu_put_tlv()\n", __func__);
@@ -3157,9 +3339,6 @@ put_tlv:
 	}
 
 	return 0;
-
-out_of_mem:
-	return -1;
 }
 
 int agent_gen_bk_sta_radio_cap_tlv(struct agent *a, uint32_t radio_index, struct cmdu_buff *cmdu)
